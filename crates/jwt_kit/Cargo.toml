@@ -1,0 +1,16 @@
+[package]
+name = "jwt_kit"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+jsonwebtoken = { workspace = true }
+rootcause = { workspace = true }
+secrecy = { workspace = true }
+serde = { workspace = true }

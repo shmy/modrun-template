@@ -1,0 +1,13 @@
+[package]
+name = "validify_kit"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+validify = { workspace = true }

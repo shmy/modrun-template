@@ -1,0 +1,3 @@
+[migrate]
+migrations-dir = "./versions"
+table-name = "_migrations"

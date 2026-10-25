@@ -1,0 +1,45 @@
+[package]
+name = "identity"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "lib.rs"
+
+[lints]
+workspace = true
+
+[features]
+# 由 server feature `otlp` 开启；单独测 identity 可不带 metrics
+default = []
+otel = ["dep:trace_kit", "trace_kit/otlp"]
+
+[dependencies]
+axum = { workspace = true }
+authn_kit = { workspace = true }
+config = { workspace = true }
+http_auth = { workspace = true }
+http_server = { workspace = true }
+identity_contract = { workspace = true }
+jwt_kit = { workspace = true }
+cache_kit = { workspace = true }
+modrun = { workspace = true }
+rootcause = { workspace = true }
+serde = { workspace = true }
+shared_contract = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true }
+trace_kit = { workspace = true, optional = true }
+tracing = { workspace = true }
+utoipa = { workspace = true }
+utoipa-axum = { workspace = true }
+uuid = { workspace = true }
+validify = { workspace = true }
+web_error = { workspace = true }
+web_state = { workspace = true }
+
+[dev-dependencies]
+migration = { workspace = true }
+secrecy = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }

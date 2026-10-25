@@ -1,0 +1,7 @@
+# https://github.com/GoogleContainerTools/distroless/blob/main/README.md#debian-13
+FROM gcr.io/distroless/cc-debian13:latest
+WORKDIR /opt
+COPY ./server server
+ARG IMAGE_TAG
+ENV IMAGE_TAG=${IMAGE_TAG}
+ENTRYPOINT ["/opt/server"]

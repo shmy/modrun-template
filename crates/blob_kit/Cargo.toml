@@ -1,0 +1,29 @@
+[package]
+name = "blob_kit"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "lib.rs"
+
+[lints]
+workspace = true
+
+[features]
+default = ["cos"]
+fs = []
+cos = []
+test-utils = []
+
+[dependencies]
+futures-util = { workspace = true }
+opendal = { workspace = true }
+rootcause = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+dotenvy = { workspace = true }
+tempfile = { workspace = true }

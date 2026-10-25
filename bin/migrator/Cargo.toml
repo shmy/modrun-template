@@ -1,0 +1,18 @@
+[package]
+name = "migrator"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "migrator"
+path = "main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+dotenvy = { workspace = true }
+migration = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true }
+tracing-subscriber = { workspace = true }

@@ -1,0 +1,23 @@
+[package]
+name = "cache"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "lib.rs"
+
+[lints]
+workspace = true
+
+[features]
+default = ["pg"]
+pg = ["cache_kit/pg"]
+redb = ["cache_kit/redb"]
+redis = ["cache_kit/redis"]
+
+[dependencies]
+modrun = { workspace = true }
+cache_kit = { workspace = true }
+config = { workspace = true }
+rootcause = { workspace = true }
+sqlx = { workspace = true }

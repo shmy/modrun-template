@@ -1,0 +1,33 @@
+[package]
+name = "http_server"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "lib.rs"
+
+[lints]
+workspace = true
+
+[features]
+# 由 server feature `otlp` 开启
+default = []
+otel = ["dep:trace_kit", "trace_kit/otlp", "dep:axum-tracing-opentelemetry"]
+
+[dependencies]
+modrun = { workspace = true }
+axum = { workspace = true }
+axum-governor = { workspace = true }
+axum-tracing-opentelemetry = { workspace = true, optional = true }
+config = { workspace = true }
+http_auth = { workspace = true }
+locale = { workspace = true }
+tower-http = { workspace = true }
+trace_kit = { workspace = true, optional = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+utoipa = { workspace = true }
+utoipa-axum = { workspace = true }
+utoipa-scalar = { workspace = true }
+web_error = { workspace = true }
+web_state = { workspace = true }

@@ -1,0 +1,16 @@
+[package]
+name = "sched_kit"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+rootcause = { workspace = true }
+tokio = { workspace = true }
+tokio-cron-scheduler = { workspace = true }
+tracing = { workspace = true }

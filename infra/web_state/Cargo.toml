@@ -1,0 +1,37 @@
+[package]
+name = "web_state"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "lib.rs"
+
+[lints]
+workspace = true
+
+[features]
+default = ["job-queue-pg"]
+job-queue-pg = ["job_queue_kit/pg"]
+job-queue-sqlite = ["job_queue_kit/sqlite"]
+
+[dependencies]
+modrun = { workspace = true }
+axum = { workspace = true }
+config = { workspace = true }
+jwt_kit = { workspace = true }
+cache_kit = { workspace = true }
+# 与 server 默认 blob-cos 对齐；单独 `cargo test -p identity` 时也需有后端变体，否则 Blob 枚举为空
+blob_kit = { workspace = true, features = ["cos"] }
+job_queue_kit = { workspace = true }
+sqlx = { workspace = true }
+serde_path_to_error = { workspace = true }
+validify = { workspace = true }
+validify_kit = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_urlencoded = { workspace = true }
+form_urlencoded = { workspace = true }
+web_error = { workspace = true }
+real = { workspace = true }
+axum_typed_multipart = { workspace = true }
+tracing = { workspace = true }

@@ -1,0 +1,30 @@
+[package]
+name = "job_queue_kit"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "lib.rs"
+
+[lints]
+workspace = true
+
+[features]
+default = ["pg"]
+pg = []
+sqlite = ["sqlx/sqlite"]
+
+[dependencies]
+chrono = { workspace = true }
+futures-util = { workspace = true }
+opentelemetry = { workspace = true }
+rootcause = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

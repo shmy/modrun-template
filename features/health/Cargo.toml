@@ -1,0 +1,20 @@
+[package]
+name = "health"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+axum = { workspace = true }
+modrun = { workspace = true }
+http_server = { workspace = true }
+serde = { workspace = true }
+sqlx = { workspace = true }
+utoipa = { workspace = true }
+utoipa-axum = { workspace = true }
+web_state = { workspace = true }

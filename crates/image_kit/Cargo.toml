@@ -1,0 +1,16 @@
+[package]
+name = "image_kit"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+image = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+webp = { workspace = true }

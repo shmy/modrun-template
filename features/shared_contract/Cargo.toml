@@ -1,0 +1,18 @@
+[package]
+name = "shared_contract"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+rootcause = { workspace = true }
+serde = { workspace = true }
+sqlx = { workspace = true }
+tsid = { workspace = true }
+utoipa = { workspace = true }
+validify = { workspace = true }

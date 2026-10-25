@@ -1,0 +1,23 @@
+[package]
+name = "job_queue"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "lib.rs"
+
+[lints]
+workspace = true
+
+[features]
+default = ["pg"]
+pg = ["job_queue_kit/pg"]
+sqlite = ["job_queue_kit/sqlite"]
+
+[dependencies]
+job_queue_kit = { workspace = true }
+config = { workspace = true }
+futures-util = { workspace = true }
+modrun = { workspace = true }
+rootcause = { workspace = true }
+sqlx = { workspace = true }

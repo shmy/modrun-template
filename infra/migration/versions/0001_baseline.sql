@@ -1,0 +1,2 @@
+-- modrun-template baseline migration.
+-- Add domain tables in subsequent migrations (0002_*.sql, ...).

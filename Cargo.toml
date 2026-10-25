@@ -1,0 +1,256 @@
+[workspace]
+members = [
+    "bin/server",
+    "bin/migrator",
+    "crates/authn_kit",
+    "crates/blob_kit",
+    "crates/cache_kit",
+    "crates/image_kit",
+    "crates/job_queue_kit",
+    "crates/jwt_kit",
+    "crates/sched_kit",
+    "crates/trace_kit",
+    "crates/validify_kit",
+    "features/file",
+    "features/file_contract",
+    "features/health",
+    "features/identity",
+    "features/identity_contract",
+    "features/shared_contract",
+    "infra/blob",
+    "infra/cache",
+    "infra/config",
+    "infra/http_auth",
+    "infra/http_server",
+    "infra/job_queue",
+    "infra/scheduler",
+    "infra/locale",
+    "infra/persistence",
+    "infra/web_error",
+    "infra/web_state",
+]
+resolver = "3"
+
+[workspace.dependencies]
+# 默认仅 console；OTLP/metrics 由 server feature `otlp`（及 identity/http_server）开启
+trace_kit = { path = "crates/trace_kit", default-features = false, features = ["console"] }
+health = { path = "features/health" }
+identity = { path = "features/identity" }
+identity_contract = { path = "features/identity_contract" }
+authn_kit = { path = "crates/authn_kit" }
+image_kit = { path = "crates/image_kit" }
+jwt_kit = { path = "crates/jwt_kit" }
+file = { path = "features/file" }
+file_contract = { path = "features/file_contract" }
+shared_contract = { path = "features/shared_contract" }
+cache = { path = "infra/cache", default-features = false }
+blob = { path = "infra/blob", default-features = false }
+blob_kit = { path = "crates/blob_kit", default-features = false }
+job_queue = { path = "infra/job_queue", default-features = false }
+job_queue_kit = { path = "crates/job_queue_kit", default-features = false }
+sched_kit = { path = "crates/sched_kit" }
+scheduler = { path = "infra/scheduler" }
+config = { path = "infra/config" }
+web_state = { path = "infra/web_state" }
+web_error = { path = "infra/web_error" }
+http_auth = { path = "infra/http_auth" }
+cache_kit = { path = "crates/cache_kit" }
+validify_kit = { path = "crates/validify_kit" }
+locale = { path = "infra/locale" }
+migration = { path = "infra/migration" }
+http_server = { path = "infra/http_server" }
+persistence = { path = "infra/persistence" }
+humantime = { version = "2.3", default-features = false }
+ipnet = { version = "2", default-features = false }
+real = { version = "0.1", default-features = false }
+secrecy = { version = "0.10", default-features = false }
+axum = { version = "0.8", default-features = false, features = [
+    "http1",
+    "json",
+    "query",
+    "tokio",
+] }
+axum-extra = { version = "0.12", default-features = false, features = [
+    "cookie",
+] }
+accept-language = { version = "3.1", default-features = false }
+fluent-bundle = { version = "0.16", default-features = false }
+unic-langid = { version = "0.9", default-features = false }
+utoipa = { version = "6", default-features = false, features = [
+    "macros",
+    "chrono",
+    "axum_extras",
+] }
+utoipa-axum = { version = "0.3", default-features = false }
+utoipa-scalar = { version = "0.4", default-features = false, features = [
+    "axum",
+] }
+axum-tracing-opentelemetry = { version = "0.42", default-features = false }
+axum-governor = { version = "2.1", default-features = false, features = ["dashmap"] }
+mimalloc = { version = "0.1", default-features = false }
+modrun = { version = "1.1", default-features = false, features = ["signal"] }
+tokio = { version = "1", default-features = false, features = [
+    "fs",
+    "macros",
+    "net",
+    "rt",
+    "rt-multi-thread",
+    "signal",
+    "sync",
+    "time",
+] }
+tower = { version = "0.5", default-features = false }
+serde = { version = "1", default-features = false, features = ["derive"] }
+serde_json = { version = "1", default-features = false, features = ["std"] }
+rootcause = { version = "0.13", default-features = false }
+rootcause-tracing = { version = "0.13", default-features = false }
+dotenvy = { version = "0.15", default-features = false }
+clap = { version = "4.5", default-features = false, features = [
+    "derive",
+    "env",
+    "error-context",
+    "help",
+    "std",
+] }
+# 默认仅 postgres；job-queue-sqlite 通过 `sqlx/sqlite` 附加（见 job_queue_kit）
+sqlx = { version = "0.9", default-features = false, features = [
+    "chrono",
+    "derive",
+    "json",
+    "macros",
+    "migrate",
+    "postgres",
+    "sqlx-toml",
+    "runtime-tokio",
+] }
+tower-http = { version = "0.7", default-features = false, features = [
+    "timeout",
+    "cors",
+] }
+tracing = { version = "0.1", default-features = false, features = [
+    "std",
+    "attributes",
+] }
+tracing-subscriber = { version = "0.3", default-features = false, features = [
+    "fmt",
+    "ansi",
+    "json",
+    "env-filter",
+] }
+opentelemetry = { version = "0.33", default-features = false, features = [
+    "trace",
+    "metrics",
+] }
+http_1 = { package = "http", version = "1", default-features = false, features = [
+    "std",
+] }
+opentelemetry-appender-tracing = { version = "0.33", default-features = false }
+opentelemetry-otlp = { version = "0.33", default-features = false, features = [
+    "logs",
+    "metrics",
+    "trace",
+    "grpc-tonic",
+] }
+opentelemetry-semantic-conventions = { version = "0.33", default-features = false }
+opentelemetry_sdk = { version = "0.33", default-features = false }
+tonic = { version = "0.14", default-features = false }
+tracing-opentelemetry = { version = "0.34", default-features = false, features = [
+    "metrics",
+]}
+validify = { version = "2.0", default-features = false }
+serde_path_to_error = { version = "0.1", default-features = false }
+serde_urlencoded = { version = "0.7", default-features = false }
+form_urlencoded = { version = "1", default-features = false }
+axum_typed_multipart = { version = "0.16", default-features = false, features = [
+    "tempfile_3",
+    "chrono_0_4",
+] }
+jsonwebtoken = { version = "11.0", default-features = false, features = [
+    "rust_crypto",
+] }
+argon2 = { version = "0.6", default-features = false, features = [
+    "alloc",
+    "password-hash",
+    "getrandom",
+] }
+thiserror = { version = "2", default-features = false }
+chrono = { version = "0.4", default-features = false, features = [
+    "clock",
+    "std",
+] }
+tokio-cron-scheduler = { version = "0.15", default-features = false, features = [
+    "english",
+] }
+tsid = { version = "0.3", default-features = false }
+uuid = { version = "1", default-features = false, features = ["v4"] }
+sha2 = { version = "0.11", default-features = false }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+tokio-util = { version = "0.7", default-features = false, features = ["io"] }
+opendal = { version = "0.59", default-features = false, features = [
+    "executors-tokio",
+    "http-transport-reqwest",
+    "layers-logging",
+    "services-cos",
+    "services-fs",
+    "services-memory",
+] }
+redb = { version = "4.1", default-features = false }
+bb8-redis = { version = "0.26", default-features = false }
+redis = { version = "1.5", default-features = false, features = [
+    "script",
+    "tokio-comp",
+] }
+tempfile = { version = "3", default-features = false }
+image = { version = "0.25", default-features = false, features = [
+    "jpeg",
+    "png",
+    "webp",
+] }
+webp = { version = "0.3", default-features = false }
+imageformat = { version = "0.3", default-features = false }
+tempoid = { version = "0.1", default-features = false }
+testcontainers-modules = { version = "0.15", default-features = false, features = [
+    "redis",
+] }
+regex = { version = "1", default-features = false }
+toml = { version = "0.9", default-features = false, features = [
+    "parse",
+    "serde",
+] }
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+indexing_slicing = "deny"
+dbg_macro = "deny"
+todo = "warn"
+
+[profile.dev]
+debug = "line-tables-only"   # Generate debugging information for easy debugging
+split-debuginfo = "unpacked" # Accelerate Compilation Speed on MacOS
+opt-level = 0                # Do not perform any optimization, compile quickly
+incremental = true           # Enable incremental compilation to accelerate the compilation process
+overflow-checks = true       # Enable overflow check for easy debugging
+panic = "abort"              # Retain stack information during panic for easier debugging
+codegen-units = 256          # Multi-unit code generation, accelerates compilation (Note: Too much may reduce optimization effects)
+lto = "off"                  # Disable global optimization, reduce compile time
+strip = false                # Keep the symbol table for debugging convenience
+
+[profile.release]
+debug = 0
+rpath = false
+incremental = false
+overflow-checks = false
+panic = "abort"
+codegen-units = 1
+lto = "fat"
+opt-level = 3
+strip = true
+
+[profile.release-ci]
+inherits = "release"
+incremental = true
+codegen-units = 256
+lto = "off"
+opt-level = 1

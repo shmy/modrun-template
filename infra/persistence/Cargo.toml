@@ -1,0 +1,18 @@
+[package]
+name = "persistence"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+modrun = { workspace = true }
+sqlx = { workspace = true }
+config = { workspace = true }
+migration = { workspace = true }
+tracing = { workspace = true }
+rootcause = { workspace = true }

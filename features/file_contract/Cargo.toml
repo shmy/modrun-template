@@ -1,0 +1,17 @@
+[package]
+name = "file_contract"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+chrono = { workspace = true }
+imageformat = { workspace = true }
+rootcause = { workspace = true }
+tempoid = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true
