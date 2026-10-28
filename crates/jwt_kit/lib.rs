@@ -8,6 +8,7 @@
     )
 )]
 
+mod hs256;
 mod token_helper;
 mod token_realm;
 
