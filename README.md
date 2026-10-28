@@ -200,7 +200,8 @@ just pre_commit   # machete + fmt + clippy(--all-features) + arch_test（全后�
 just db-up        # docker compose up -d
 just sqlx_up      # 独立执行数据库迁移（cargo run -p migrator）
 just test         # cargo test --workspace（多根 unification，可能同时编 cos+fs）
-just ai-check <crate>  # 架构/格式/编译/测试快速自检（web_state 自动加 blob-fs）
+just lint <crate>       # 快门：fmt + clippy（秒级，迭代中用）
+just ai-check <crate>   # 全门：lint + 架构测试 + 定向测试（web_state 自动加 blob-fs）
 just test-features     # feature 组合测试（redb / redis / test-utils / sqlite）
 just who-uses <symbol> # 查符号引用面
 just new-feature <name>  # 生成 feature + contract 骨架
