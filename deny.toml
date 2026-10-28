@@ -1,8 +1,28 @@
 # Minimal cargo-deny config for CI; tighten as the template hardens.
 [advisories]
 yanked = "warn"
+# 以下 ignore 均源自 validify 2.0（已是 crates.io 最新，上游未修复）请求体校验链，
+# 一旦 validify 发布修复版本即应移除对应条目：
+ignore = [
+    # idna 0.5 Punycode 漏洞：仅用于请求体字段校验，服务自身无 URL 主机名授权比较场景，不可利用
+    "RUSTSEC-2024-0421",
+    # proc-macro-error（validify_derive 宏拉入）：仅编译期执行，无运行时攻击面
+    "RUSTSEC-2024-0370",
+    # atomic-polyfill（phonenumber → postcard → heapless）：仅在无原子操作的目标平台编译，
+    # 生产 x86_64/aarch64 二进制不含
+    "RUSTSEC-2023-0089",
+    # unic-* 5 个（validify 拉入）：纯 Unicode 数据表 crate，无执行逻辑
+    "RUSTSEC-2025-0075", # unic-char-range
+    "RUSTSEC-2025-0080", # unic-common
+    "RUSTSEC-2025-0081", # unic-char-property
+    "RUSTSEC-2025-0098", # unic-ucd-version
+    "RUSTSEC-2025-0101", # unic-ucd-common
+]
 
 [licenses]
+# workspace 内部 crate 均标记 publish = false（模板代码禁止发布 crates.io），
+# 配合 private.ignore = true 跳过其 license 检查；license 由按产品落地时决定
+private = { ignore = true }
 allow = [
     "MIT",
     "Apache-2.0",
@@ -18,6 +38,8 @@ allow = [
     "CC0-1.0",
     "MPL-2.0",
     "BSL-1.0",
+    # webpki-root-certs：CA 根证书集合按 CDLA-Permissive-2.0 分发（宽松，rustls 生态标准）
+    "CDLA-Permissive-2.0",
 ]
 confidence-threshold = 0.8
 
