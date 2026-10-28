@@ -27,3 +27,5 @@ path_params_wrong_count = 路径参数数量不匹配
 invalid_path_params = 路径参数无效
 blob_presign_unsupported = 当前对象存储后端不支持预签名直传
 job_timeout = 后台任务执行超时
+jwt_invalid = JWT 无效
+jwt_expired = JWT 已过期

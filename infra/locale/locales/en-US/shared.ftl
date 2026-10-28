@@ -27,3 +27,5 @@ path_params_wrong_count = Path parameter count mismatch
 invalid_path_params = Invalid path parameters
 blob_presign_unsupported = Presigned upload is not supported by this blob backend
 job_timeout = Background job timed out
+jwt_invalid = Invalid JWT
+jwt_expired = JWT has expired

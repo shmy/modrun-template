@@ -189,8 +189,10 @@ mod tests {
             Regex::new(r#"#\[error\("([^"]*)"\)\]"#).expect("compile thiserror regex");
         let web_error_re = Regex::new(r#"WebError::L10n\("([a-zA-Z0-9_-]+)"\.to_string\(\)\)"#)
             .expect("compile web error regex");
-        let field_err_re = Regex::new(r#"field_err!\(\s*"[^"]*"\s*,\s*"([a-zA-Z0-9_-]+)""#)
-            .expect("compile field_err regex");
+        // 不用 \s：workspace regex 关了 unicode-perl，隔离测 -p locale 时 \s 编不过
+        let field_err_re =
+            Regex::new(r#"field_err!\([ \t\n\r]*"[^"]*"[ \t\n\r]*,[ \t\n\r]*"([a-zA-Z0-9_-]+)""#)
+                .expect("compile field_err regex");
 
         let mut keys = HashSet::new();
         let mut violations = Vec::new();
