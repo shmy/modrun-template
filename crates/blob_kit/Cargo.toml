@@ -13,13 +13,19 @@ workspace = true
 [features]
 default = ["cos"]
 fs = ["opendal/services-fs"]
-cos = ["opendal/services-cos", "opendal/http-transport-reqwest"]
+# no-provider transport：不编 rustls 的任何 provider，由下方 rustls(仅 ring) 统一供给
+cos = [
+    "opendal/services-cos",
+    "opendal/http-transport-reqwest-rustls-no-provider",
+    "dep:rustls",
+]
 test-utils = ["opendal/services-memory"]
 
 [dependencies]
 futures-util = { workspace = true }
 opendal = { workspace = true }
 rootcause = { workspace = true }
+rustls = { workspace = true, optional = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }

@@ -38,6 +38,9 @@ impl Cos {
         // workspace 关闭了 opendal `auto-register-services`（无 ctor 自动注册），
         // HTTP 后端需手动注册默认 transport（幂等，可多次调用）。
         opendal::install_default();
+        // no-provider transport 下需在首个 TLS 连接前安装默认 CryptoProvider；
+        // ring 是全图唯一编译进来的 provider（见 workspace Cargo.toml 注释），重复安装幂等
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let bucket = config.bucket;
 
         let op = {

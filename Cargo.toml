@@ -171,12 +171,20 @@ axum_typed_multipart = { version = "0.16", default-features = false, features = 
     "tempfile_3",
     "chrono_0_4",
 ] }
-# HS256-only（见 jwt_kit）：aws_lc_rs backend 避免编入 rust_crypto 全家桶
-# （rsa RUSTSEC-2023-0071、crypto-bigint RUSTSEC-2026-0387 等 HS256 用不到的漏洞死代码）；
-# aws-lc-sys 在生产图本就存在（rustls via reqwest），仅 `just dev` 轻量图首次构建需编 C
-jsonwebtoken = { version = "11.0", default-features = false, features = [
-    "aws_lc_rs",
+# TLS provider 统一：reqwest 公开 `rustls` feature 强绑 aws-lc（cmake 编 C，分钟级），
+# 故 blob_kit(cos) 走 opendal no-provider transport + 在此直接开 rustls/ring，
+# 使 ring 成为全图唯一 rustls provider
+rustls = { version = "0.23", default-features = false, features = [
+    "ring",
+    "std",
+    "tls12",
+    "logging",
 ] }
+# jwt_kit 的 HS256 自实现（hmac+sha2+base64），替代 jsonwebtoken：
+# 其 rust_crypto / aws_lc_rs backend 均会把整套非对称曲线（rsa、crypto-bigint、p256 等）
+# 编进二进制，而 jwt_kit 只用 HS256；hmac 0.13 与 workspace sha2 0.11（digest 0.11）配套
+hmac = { version = "0.13", default-features = false }
+base64 = { version = "0.22", default-features = false, features = ["std"] }
 argon2 = { version = "0.6", default-features = false, features = [
     "alloc",
     "password-hash",
