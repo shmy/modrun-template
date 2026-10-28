@@ -85,6 +85,8 @@ pre_commit:
     cargo fmt --all
     # --all-features 会 unification 进全部后端（含 blob-fs）；质量门保留，与 just build 的轻量图分离
     cargo clippy --workspace --all-targets --all-features
+    # 供应链门禁：advisories/bans/licenses/sources 四项（advisory DB 需网络，约数秒）
+    cargo deny check
     cargo test -p server arch_test
     
 test:
