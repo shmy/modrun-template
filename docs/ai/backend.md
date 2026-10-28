@@ -14,7 +14,7 @@
 └── 改 DB → infra/migration/versions/ 新 .sql → `just sqlx_up`（或 server 启动时 persistence 自动迁移）
 ```
 
-写完端点后：`just ai-check {crate}`。
+写完端点后：`just ai-check {crate}`（迭代中小步用 `just lint {crate}`，秒级）。
 
 ## 关键 crate
 

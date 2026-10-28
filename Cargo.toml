@@ -253,7 +253,8 @@ strip = true
 
 [profile.release-ci]
 inherits = "release"
-incremental = true
+# CI 每次全新环境，增量缓存不可复用，true 纯增 IO；仅本地反复跑该 profile 时才可能受益
+incremental = false
 codegen-units = 256
 lto = "off"
 opt-level = 1

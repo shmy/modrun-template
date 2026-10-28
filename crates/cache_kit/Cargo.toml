@@ -14,6 +14,10 @@ default = ["pg"]
 pg = ["dep:sqlx", "dep:chrono"]
 redb = ["dep:redb", "dep:chrono"]
 redis = ["dep:bb8-redis", "dep:redis", "dep:uuid", "dep:chrono"]
+# Redis 集成测试走 testcontainers（需 Docker，依赖图含 bollard/tonic 全家桶）；
+# 单独 gate 使 `cargo test -p cache_kit` / `just test` 不编它，仅 `--features test-redis` 或
+# `--all-features`（pre_commit 质量门故意全开）时进入
+test-redis = ["redis", "dep:testcontainers-modules"]
 
 [dependencies]
 chrono = { workspace = true, optional = true }
@@ -25,8 +29,8 @@ redb = { workspace = true, optional = true }
 bb8-redis = { workspace = true, optional = true }
 redis = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
+testcontainers-modules = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
 tokio = { workspace = true }
-testcontainers-modules = { workspace = true }

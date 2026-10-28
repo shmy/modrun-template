@@ -47,23 +47,33 @@ new-feature name:
 load-baseline:
     @bash scripts/load-baseline.sh
 
-ai-check crate:
+# 快门（迭代中小步）：格式 + clippy（clippy 覆盖类型检查），秒级反馈
+lint crate:
     #!/usr/bin/env bash
     set -euo pipefail
     set -a && [ -f .env ] && source .env
-    # web_state 无默认 blob 后端；单独 check 需显式打开
-    extra=()
+    # web_state 无默认 blob 后端；单独检查需显式打开
+    # （bash 3.2 下 set -u 展开空数组会报错，用字符串而非数组）
+    extra=""
     if [[ "{{crate}}" == "web_state" ]]; then
-        extra=(--features blob-fs)
+        extra="--features blob-fs"
+    fi
+    cargo fmt --all -- --check
+    cargo clippy -p {{crate}} $extra --all-targets
+
+# 全门（端点完成 / 提交前）：先快门，再架构测试 + 定向测试
+ai-check crate: (lint crate)
+    #!/usr/bin/env bash
+    set -euo pipefail
+    set -a && [ -f .env ] && source .env
+    extra=""
+    if [[ "{{crate}}" == "web_state" ]]; then
+        extra="--features blob-fs"
     fi
     echo "=== Architecture test ==="
     cargo test -p server arch_test --quiet 2>&1 | tail -3
-    echo "=== Format check ==="
-    cargo fmt --all -- --check 2>&1 | tail -3
-    echo "=== Check {{crate}} ==="
-    cargo check -p {{crate}} "${extra[@]}" --message-format=short 2>&1 | tail -5
     echo "=== Test {{crate}} ==="
-    cargo test -p {{crate}} "${extra[@]}" --quiet 2>&1 | tail -10
+    cargo test -p {{crate}} $extra --quiet 2>&1 | tail -10
     echo "--- Done ---"
 
 pre_commit:
@@ -87,8 +97,8 @@ test-features:
     set -a && [ -f .env ] && source .env
     echo "=== cache_kit redb ==="
     cargo test -p cache_kit --features redb --quiet
-    echo "=== cache_kit redis (testcontainers) ==="
-    cargo test -p cache_kit --features redis --quiet
+    echo "=== cache_kit redis (testcontainers, 需 Docker) ==="
+    cargo test -p cache_kit --features test-redis --quiet
     echo "=== blob_kit test-utils ==="
     cargo test -p blob_kit --features test-utils --quiet
     echo "=== file ==="

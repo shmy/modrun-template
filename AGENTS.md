@@ -11,7 +11,7 @@
 * 根据任务涉及的 feature，按需加载 `features/<name>/` 与 `<name>_contract/`
 * 动基础设施时再读对应 `infra/` crate
 * **禁止预读** `docs/ai/`（除非新建域、新 endpoint、改分层/错误约定）
-* **禁止预读** `docs/repo-assessment*.md`（历史评审快照，部分结论已过时；以本文件与当前代码为准）
+* **禁止预读** `docs/archive/repo-assessment*.md`（已归档的历史评审快照，部分结论已过时；以本文件与当前代码为准）
 
 **搜索优先级**：
 
@@ -22,6 +22,14 @@
 **依赖变更**：改 `*_contract`、跨域 `pub` API、OpenAPI/DTO 前执行 `just who-uses <符号>`。
 
 **脚手架命令**：`just new-feature <name>` 生成域骨架；`just load-baseline` 跑 login/search 负载锚点。双组合根规划见 `docs/dual-composition-root-plan.md`（未落地）。
+
+**质量门分级（勿在迭代中反复跑全量门）**：
+
+| 时机 | 命令 | 内容 |
+|------|------|------|
+| 迭代中小步 | `just lint <crate>` | fmt + clippy（秒级） |
+| 端点完成 / 提交前 | `just ai-check <crate>` | + arch_test + 定向测试 |
+| 提交前最终门 | `just pre_commit` | 全 workspace 全 feature 全 target（慢，只跑一次） |
 
 ## 项目概览
 

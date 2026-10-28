@@ -87,7 +87,8 @@ impl RedisCache {
     }
 }
 
-#[cfg(test)]
+// 需 Docker（testcontainers）；由 `--features test-redis` 开启，避免日常 cargo test 编 bollard 全家桶
+#[cfg(all(test, feature = "test-redis"))]
 mod tests {
     use super::*;
     use redis::Redis as RedisRedis;
