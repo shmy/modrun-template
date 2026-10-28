@@ -12,8 +12,12 @@ use identity_contract::IdentityError;
 use std::fmt;
 use tokio::task::spawn_blocking;
 
-static ARGON2: LazyLock<Argon2> =
-    LazyLock::new(|| Argon2::new(Algorithm::Argon2id, Version::V0x13, Params::default()));
+/// 显式固定 argon2id 成本（m=19MiB, t=2, p=1，OWASP 推荐基线）：
+/// 不用 `Params::default()`，避免 argon2 crate 升级时静默改变哈希成本（影响登录延迟与安全基线）
+static ARGON2: LazyLock<Argon2> = LazyLock::new(|| {
+    let params = Params::new(19 * 1024, 2, 1, None).unwrap_or_else(|_| Params::default());
+    Argon2::new(Algorithm::Argon2id, Version::V0x13, params)
+});
 
 #[derive(Clone)]
 pub struct HashedPassword(String);
@@ -64,6 +68,17 @@ impl HashedPassword {
                 tracing::error!(error = %err, "password verify task join failed");
                 IdentityError::AccountInvalidCredentials.into()
             })?
+    }
+
+    /// 时序一致性：执行一次与真实校验等价的 argon2（固定哑密码，**不做密码规则校验**，
+    /// 规则变化不影响此路径），供登录「手机号不存在」分支抹平响应时间差，防止枚举有效手机号。
+    /// 不产生/存储任何凭证，失败仅记录。
+    pub async fn equalize_timing() {
+        const DUMMY: &[u8] = b"timing-equalizer-dummy-password";
+        let result = spawn_blocking(move || (*ARGON2).hash_password(DUMMY)).await;
+        if let Err(err) = result {
+            tracing::error!(error = %err, "login timing equalizer hash failed");
+        }
     }
 }
 

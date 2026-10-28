@@ -8,6 +8,7 @@ use web_state::WebState;
 use crate::dto::{LoginRequest, TokenResponse};
 use crate::repository;
 use crate::shared::token_ops;
+use crate::value_object::HashedPassword;
 
 #[utoipa::path(
     post,
@@ -29,6 +30,8 @@ pub async fn handler(
     let row = match repository::find_auth_by_phone(&state.pg, &request.phone).await? {
         Some(row) => row,
         None => {
+            // 时序一致性：执行等价 argon2，防止通过响应时间差异枚举有效手机号
+            HashedPassword::equalize_timing().await;
             #[cfg(feature = "otel")]
             trace_kit::metrics::record_login(false);
             return Err(WebError::from(Report::from(
