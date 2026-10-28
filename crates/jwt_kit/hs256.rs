@@ -10,6 +10,7 @@ use hmac::{Hmac, KeyInit, Mac};
 use rootcause::Result;
 use serde::de::DeserializeOwned;
 use sha2::Sha256;
+use std::result;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 type HmacSha256 = Hmac<Sha256>;
@@ -35,7 +36,7 @@ pub(crate) fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
-fn new_mac(secret: &[u8]) -> std::result::Result<HmacSha256, JwtError> {
+fn new_mac(secret: &[u8]) -> result::Result<HmacSha256, JwtError> {
     // HMAC 接受任意长度密钥，此分支仅为满足 Result API
     HmacSha256::new_from_slice(secret).map_err(|_| JwtError::Invalid)
 }

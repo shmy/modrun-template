@@ -12,6 +12,7 @@ use tokio::fs::File;
 use tokio_util::io::ReaderStream;
 
 use crate::shared::{BackendCore, ListedEntry};
+use rustls::crypto::ring::default_provider;
 use std::fmt;
 
 pub struct CosConfig<'a> {
@@ -40,7 +41,7 @@ impl Cos {
         opendal::install_default();
         // no-provider transport 下需在首个 TLS 连接前安装默认 CryptoProvider；
         // ring 是全图唯一编译进来的 provider（见 workspace Cargo.toml 注释），重复安装幂等
-        let _ = rustls::crypto::ring::default_provider().install_default();
+        let _ = default_provider().install_default();
         let bucket = config.bucket;
 
         let op = {
