@@ -1,5 +1,6 @@
 use axum::{Json, extract::State};
 use http_auth::AuthedAccount;
+use http_extractors::{ValidJson, ValidPath};
 use identity_contract::IdentityError;
 use serde::Deserialize;
 use shared_contract::{Id, PhoneNumber};
@@ -7,7 +8,7 @@ use sqlx::PgPool;
 use utoipa::ToSchema;
 use validify::Validify;
 use web_error::{JsonResponseType, ProblemDetails};
-use web_state::{ValidJson, ValidPath, WebState};
+use web_state::WebState;
 
 use crate::dto::{AccountDetail, AccountIdPath};
 use crate::repository;

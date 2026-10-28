@@ -9,7 +9,7 @@
 )]
 
 use axum::extract::DefaultBodyLimit;
-use http_server::ProtectedRouter;
+use http_routing::ProtectedRouter;
 use modrun::Module;
 use utoipa_axum::{
     router::{OpenApiRouter, UtoipaMethodRouterExt},

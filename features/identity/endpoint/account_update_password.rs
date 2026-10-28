@@ -1,26 +1,28 @@
+use crate::value_object::HashedPassword;
 use axum::{Json, extract::State};
 use cache_kit::Cache;
 use http_auth::AuthedAccount;
-use identity_contract::HashedPassword;
+use http_extractors::ValidJson;
 use jwt_kit::TokenHelper;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use validify::Validify;
 use web_error::{JsonResponseType, ProblemDetails};
-use web_state::{ValidJson, WebState};
+use web_state::WebState;
 
 use crate::repository;
 use crate::shared::token_ops;
 
+use crate::value_object::Password;
 use shared_contract::Id;
 use sqlx::PgPool;
 
 #[derive(Debug, Deserialize, Validify, ToSchema)]
 pub struct UpdatePasswordRequest {
     #[validify]
-    pub old_password: identity_contract::Password,
+    pub old_password: Password,
     #[validify]
-    pub new_password: identity_contract::Password,
+    pub new_password: Password,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -78,7 +80,7 @@ pub(crate) async fn execute(
 mod tests {
     use super::*;
     use crate::tests;
-    use identity_contract::Password;
+    use crate::value_object::Password;
     use migration::run_migrations;
 
     #[sqlx::test]

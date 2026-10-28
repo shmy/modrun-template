@@ -199,7 +199,7 @@ pub fn admin_module() -> Module {
 }
 ```
 
-注意：`http_server::auth_layer(&cli)`（登录/刷新的更紧限流层）目前在 `identity::public_routes` 内自行挂载，拆分后 consumer 侧登录路由也要挂同一层。`modrun` 模块名在同一进程内必须唯一，两个 bin 分别注册各自的 module 函数即可，互不冲突。
+注意：`http_routing::auth_layer(&cli)`（登录/刷新的更紧限流层；`http_server` 仍 re-export）目前在 `identity::public_routes` 内自行挂载，拆分后 consumer 侧登录路由也要挂同一层。`modrun` 模块名在同一进程内必须唯一，两个 bin 分别注册各自的 module 函数即可，互不冲突。
 
 ### 2. 组合根各自完整组装
 

@@ -1,9 +1,10 @@
 use axum::{Json, extract::State};
 use http_auth::AuthedAccount;
+use http_extractors::ValidPath;
 use shared_contract::Id;
 use sqlx::PgPool;
 use web_error::{JsonResponseType, ProblemDetails};
-use web_state::{ValidPath, WebState};
+use web_state::WebState;
 
 use crate::dto::{AccountDetail, AccountIdPath};
 use crate::repository;

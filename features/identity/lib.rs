@@ -8,9 +8,10 @@
     )
 )]
 
+use crate::entity::Account;
+use crate::value_object::HashedPassword;
 use config::cli::{Cli, ExposeSecret, SeedCli};
-use http_server::{ProtectedRouter, PublicRouter};
-use identity_contract::{Account, HashedPassword};
+use http_routing::{ProtectedRouter, PublicRouter, auth_layer};
 use modrun::Error;
 use modrun::{Lifecycle, Module, Result, hook};
 use shared_contract::{Id, PhoneNumber};
@@ -19,8 +20,10 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 
 mod dto;
 mod endpoint;
+mod entity;
 mod repository;
 mod shared;
+mod value_object;
 
 #[cfg(test)]
 pub(crate) mod tests;
@@ -54,7 +57,7 @@ fn public_routes(cli: Cli) -> PublicRouter {
     let mut router = OpenApiRouter::new()
         .routes(routes!(endpoint::account_login::handler))
         .routes(routes!(endpoint::account_refresh_token::handler));
-    match http_server::auth_layer(&cli) {
+    match auth_layer(&cli) {
         Ok(layer) => router = router.layer(layer),
         Err(err) => tracing::error!(error = %err, "auth rate limit layer disabled"),
     }

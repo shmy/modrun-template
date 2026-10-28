@@ -1,13 +1,15 @@
+use crate::entity::Account;
+use crate::value_object::{HashedPassword, Password};
 use axum::{Json, extract::State};
 use http_auth::AuthedAccount;
-use identity_contract::{Account, HashedPassword, Password};
+use http_extractors::ValidJson;
 use serde::{Deserialize, Serialize};
 use shared_contract::{Id, PhoneNumber};
 use sqlx::PgPool;
 use utoipa::ToSchema;
 use validify::Validify;
 use web_error::{JsonResponseType, ProblemDetails};
-use web_state::{ValidJson, WebState};
+use web_state::WebState;
 
 use crate::repository;
 
@@ -81,7 +83,7 @@ pub(crate) async fn execute(
 mod tests {
     use super::*;
     use crate::tests;
-    use identity_contract::Password;
+    use crate::value_object::Password;
     use migration::run_migrations;
 
     #[sqlx::test]

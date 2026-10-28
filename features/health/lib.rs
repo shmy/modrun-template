@@ -1,4 +1,4 @@
-use http_server::PublicRouter;
+use http_routing::PublicRouter;
 use modrun::Module;
 use utoipa_axum::{router::OpenApiRouter, routes};
 

@@ -1,6 +1,6 @@
 //! 统一对象存储后端：`Blob` 枚举 + 方法门面（模式与 `cache_kit::Cache` 一致）。
 //!
-//! 编译期按 feature 装配（可并存，`infra/blob` 组装处选择变体）：
+//! 编译期按 feature 装配（可并存；`infra/blob`：`cos` 优先，仅 fs 独占时落盘）：
 //! - `Cos`：feature `cos`（**默认**），腾讯云 COS / S3 兼容对象存储
 //! - `Fs`：feature `fs`，本地文件系统（开发/单实例环境）
 //! - `TestBlob`：feature `test-utils`，opendal Memory 内存后端（集成测试）

@@ -1,5 +1,6 @@
 use axum::{Json, extract::State};
 use http_auth::AuthedAccount;
+use http_extractors::ValidQuery;
 use identity_contract::IdentityError;
 use serde::Deserialize;
 use shared_contract::{CursorPagingQuery, CursorPagingResult, Id};
@@ -7,7 +8,7 @@ use sqlx::PgPool;
 use utoipa::IntoParams;
 use validify::Validify;
 use web_error::{JsonResponseType, ProblemDetails};
-use web_state::{ValidQuery, WebState};
+use web_state::WebState;
 
 use crate::dto::AccountPublic;
 use crate::repository;
@@ -82,7 +83,7 @@ pub(crate) async fn execute(
 mod tests {
     use super::*;
     use crate::tests;
-    use identity_contract::HashedPassword;
+    use crate::value_object::HashedPassword;
     use migration::run_migrations;
     use serde_json::json;
     use shared_contract::Id as SharedContractId;

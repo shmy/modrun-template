@@ -1,5 +1,6 @@
+use crate::entity::Account;
 use crate::repository::AccountListItem;
-use identity_contract::{Account, Password, RefreshToken};
+use crate::value_object::{Password, RefreshToken};
 use serde::{Deserialize, Serialize};
 use shared_contract::{Id, PhoneNumber};
 use utoipa::{IntoParams, ToSchema};

@@ -21,6 +21,8 @@ members = [
     "infra/cache",
     "infra/config",
     "infra/http_auth",
+    "infra/http_extractors",
+    "infra/http_routing",
     "infra/http_server",
     "infra/job_queue",
     "infra/scheduler",
@@ -34,13 +36,15 @@ resolver = "3"
 [workspace.dependencies]
 # 默认仅 console；OTLP/metrics 由 server feature `otlp`（及 identity/http_server）开启
 trace_kit = { path = "crates/trace_kit", default-features = false, features = ["console"] }
-health = { path = "features/health" }
-identity = { path = "features/identity" }
+# 下列带 default-features = false：避免被依赖时自动打开 `dev-blob`（会把 fs 带进 blob-cos 图）
+# 单独 `cargo check -p <crate>` 仍使用该 crate 自己的 default（含 dev-blob）
+health = { path = "features/health", default-features = false }
+identity = { path = "features/identity", default-features = false }
 identity_contract = { path = "features/identity_contract" }
 authn_kit = { path = "crates/authn_kit" }
 image_kit = { path = "crates/image_kit" }
 jwt_kit = { path = "crates/jwt_kit" }
-file = { path = "features/file" }
+file = { path = "features/file", default-features = false }
 file_contract = { path = "features/file_contract" }
 shared_contract = { path = "features/shared_contract" }
 cache = { path = "infra/cache", default-features = false }
@@ -49,16 +53,18 @@ blob_kit = { path = "crates/blob_kit", default-features = false }
 job_queue = { path = "infra/job_queue", default-features = false }
 job_queue_kit = { path = "crates/job_queue_kit", default-features = false }
 sched_kit = { path = "crates/sched_kit" }
-scheduler = { path = "infra/scheduler" }
+scheduler = { path = "infra/scheduler", default-features = false }
 config = { path = "infra/config" }
 web_state = { path = "infra/web_state" }
 web_error = { path = "infra/web_error" }
-http_auth = { path = "infra/http_auth" }
+http_extractors = { path = "infra/http_extractors" }
+http_routing = { path = "infra/http_routing", default-features = false }
+http_auth = { path = "infra/http_auth", default-features = false }
 cache_kit = { path = "crates/cache_kit" }
 validify_kit = { path = "crates/validify_kit" }
 locale = { path = "infra/locale" }
 migration = { path = "infra/migration" }
-http_server = { path = "infra/http_server" }
+http_server = { path = "infra/http_server", default-features = false }
 persistence = { path = "infra/persistence" }
 humantime = { version = "2.3", default-features = false }
 ipnet = { version = "2", default-features = false }
@@ -186,13 +192,10 @@ uuid = { version = "1", default-features = false, features = ["v4"] }
 sha2 = { version = "0.11", default-features = false }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 tokio-util = { version = "0.7", default-features = false, features = ["io"] }
+# 后端 services-* / http-transport 由 blob_kit 的 cos/fs/test-utils feature 按需启用
 opendal = { version = "0.59", default-features = false, features = [
     "executors-tokio",
-    "http-transport-reqwest",
     "layers-logging",
-    "services-cos",
-    "services-fs",
-    "services-memory",
 ] }
 redb = { version = "4.1", default-features = false }
 bb8-redis = { version = "0.26", default-features = false }

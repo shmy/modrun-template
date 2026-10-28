@@ -9,10 +9,14 @@ path = "lib.rs"
 [lints]
 workspace = true
 
+[features]
+default = ["dev-blob"]
+dev-blob = ["web_state/blob-fs"]
+
 [dependencies]
 axum = { workspace = true }
 modrun = { workspace = true }
-http_server = { workspace = true }
+http_routing = { workspace = true }
 serde = { workspace = true }
 sqlx = { workspace = true }
 utoipa = { workspace = true }

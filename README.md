@@ -8,8 +8,11 @@
 cp .env.example .env
 just db-up                   # 或 docker compose up -d
 just sqlx_up                 # 执行数据库迁移（可选；server 启动时也会自动迁移）
-cargo run -p server          # 或 just dev
+cargo run -p server          # 生产默认：blob-cos + otlp
+just dev                     # 本地热重载：blob-fs、无 otlp（对象落 BLOB_FILE_ROOT，默认 data/blob）
 ```
+
+> **`just dev` ≠ `cargo run -p server`**：前者用本地文件系统 blob、关闭 OTLP；要对齐生产 COS / 遥测请用后者（或显式 `--features`）。
 
 可选后端的环境变量按 **编译 feature 前缀** 区分，互不重叠；完整列表见 [`.env.example`](.env.example)：
 
@@ -191,12 +194,13 @@ just e2e_file                   # 图片上传（需 blob-fs 或 COS 配置正�
 ## 常用命令
 
 ```bash
-just dev          # cargo watch 热重载
-just pre_commit   # machete + fmt + clippy + arch_test + 全量测试
+just dev          # cargo watch：cache-pg + blob-fs + job-queue-pg，无 otlp（非生产 default）
+just check        # 与 just dev 相同 feature 集的 cargo check
+just pre_commit   # machete + fmt + clippy(--all-features) + arch_test（全后端 unification，非轻量图）
 just db-up        # docker compose up -d
 just sqlx_up      # 独立执行数据库迁移（cargo run -p migrator）
-just test         # cargo test --workspace
-just ai-check <crate>  # 架构/格式/编译/测试快速自检
+just test         # cargo test --workspace（多根 unification，可能同时编 cos+fs）
+just ai-check <crate>  # 架构/格式/编译/测试快速自检（web_state 自动加 blob-fs）
 just test-features     # feature 组合测试（redb / redis / test-utils / sqlite）
 just who-uses <symbol> # 查符号引用面
 just new-feature <name>  # 生成 feature + contract 骨架

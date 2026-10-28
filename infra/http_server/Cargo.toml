@@ -10,24 +10,27 @@ path = "lib.rs"
 workspace = true
 
 [features]
-# 由 server feature `otlp` 开启
-default = []
-otel = ["dep:trace_kit", "trace_kit/otlp", "dep:axum-tracing-opentelemetry"]
+# 单独 check 时激活 Blob；server 以 default-features = false 引入
+default = ["dev-blob"]
+dev-blob = ["web_state/blob-fs", "http_routing/dev-blob", "http_auth/dev-blob"]
+# 由 server feature `otlp` 开启；限流 metrics 经 http_routing/otel → trace_kit
+otel = [
+    "dep:axum-tracing-opentelemetry",
+    "http_routing/otel",
+]
 
 [dependencies]
 modrun = { workspace = true }
 axum = { workspace = true }
-axum-governor = { workspace = true }
 axum-tracing-opentelemetry = { workspace = true, optional = true }
 config = { workspace = true }
 http_auth = { workspace = true }
+http_routing = { workspace = true }
 locale = { workspace = true }
 tower-http = { workspace = true }
-trace_kit = { workspace = true, optional = true }
 tracing = { workspace = true }
 tokio = { workspace = true }
 utoipa = { workspace = true }
 utoipa-axum = { workspace = true }
 utoipa-scalar = { workspace = true }
-web_error = { workspace = true }
 web_state = { workspace = true }

@@ -1,13 +1,14 @@
 use axum::{Json, extract::State};
 use cache_kit::Cache;
 use http_auth::AuthedAccount;
+use http_extractors::ValidPath;
 use jwt_kit::TokenHelper;
 use serde::Serialize;
 use shared_contract::Id;
 use sqlx::PgPool;
 use utoipa::ToSchema;
 use web_error::{JsonResponseType, ProblemDetails};
-use web_state::{ValidPath, WebState};
+use web_state::WebState;
 
 use crate::dto::AccountIdPath;
 use crate::repository;

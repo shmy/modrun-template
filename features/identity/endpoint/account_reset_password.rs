@@ -1,7 +1,9 @@
+use crate::value_object::{HashedPassword, Password};
 use axum::{Json, extract::State};
 use cache_kit::Cache;
 use http_auth::AuthedAccount;
-use identity_contract::{HashedPassword, IdentityError, Password};
+use http_extractors::{ValidJson, ValidPath};
+use identity_contract::IdentityError;
 use jwt_kit::TokenHelper;
 use serde::{Deserialize, Serialize};
 use shared_contract::Id;
@@ -9,7 +11,7 @@ use sqlx::PgPool;
 use utoipa::ToSchema;
 use validify::Validify;
 use web_error::{JsonResponseType, ProblemDetails};
-use web_state::{ValidJson, ValidPath, WebState};
+use web_state::WebState;
 
 use crate::dto::AccountIdPath;
 use crate::repository;

@@ -10,12 +10,4 @@ path = "lib.rs"
 workspace = true
 
 [dependencies]
-argon2 = { workspace = true }
-rootcause = { workspace = true }
-serde = { workspace = true }
-shared_contract = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true }
-tracing = { workspace = true }
-utoipa = { workspace = true }
-validify = { workspace = true }

@@ -1,4 +1,6 @@
-use identity_contract::{Account, HashedPassword, IdentityError};
+use crate::entity::Account;
+use crate::value_object::HashedPassword;
+use identity_contract::IdentityError;
 use rootcause::Result;
 use shared_contract::{CursorPagingQuery, Id, PhoneNumber};
 use sqlx::Error;

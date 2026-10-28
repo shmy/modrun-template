@@ -1,30 +1,16 @@
-#![cfg_attr(
-    test,
-    allow(
-        clippy::unwrap_used,
-        clippy::expect_used,
-        clippy::indexing_slicing,
-        clippy::panic
-    )
-)]
-
 use sqlx::PgPool;
-
-pub mod extractor;
-
-pub use extractor::client_ip::ClientIp;
-pub use extractor::valid_json::ValidJson;
-pub use extractor::valid_path::ValidPath;
-pub use extractor::valid_query::ValidQuery;
-pub use extractor::valid_typed_multipart::ValidTypedMultipart;
 
 use blob_kit::Blob;
 use cache_kit::Cache;
 use config::TrustedProxies;
 use config::cli::Cli;
+use http_extractors::HasTrustedProxies;
 use job_queue_kit::JobBus;
 use jwt_kit::{TokenHelper, TokenRealm};
 use modrun::Module;
+
+// 兼容旧 import 路径；新代码优先直接依赖 `http_extractors`。
+pub use http_extractors::{ClientIp, ValidJson, ValidPath, ValidQuery, ValidTypedMultipart};
 
 #[derive(Clone)]
 pub struct WebState {
@@ -34,6 +20,12 @@ pub struct WebState {
     pub jobs: JobBus,
     pub token_helper: TokenHelper,
     pub trusted_proxies: TrustedProxies,
+}
+
+impl HasTrustedProxies for WebState {
+    fn trusted_proxies(&self) -> &TrustedProxies {
+        &self.trusted_proxies
+    }
 }
 
 pub fn module() -> Module {

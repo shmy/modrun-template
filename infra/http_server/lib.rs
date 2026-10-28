@@ -17,6 +17,7 @@ use tower_http::timeout::TimeoutLayer;
 use tracing::info;
 use utoipa::openapi::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
+use utoipa_scalar::Scalar;
 use utoipa_scalar::Servable as _;
 use web_state::WebState;
 
@@ -24,13 +25,8 @@ use axum::http::header::ACCEPT;
 use axum::http::header::ACCEPT_LANGUAGE;
 use axum::http::header::AUTHORIZATION;
 use axum::http::header::CONTENT_TYPE;
-pub use routes::{ProtectedRouter, PublicRouter};
-use utoipa_scalar::Scalar;
 
-mod rate_limit;
-pub use rate_limit::{auth_layer, global_layer};
-
-mod routes;
+pub use http_routing::{ProtectedRouter, PublicRouter, auth_layer, global_layer};
 
 pub fn module() -> Module {
     Module::builder("http_server").invoke(serve)
@@ -44,7 +40,7 @@ fn serve(
     openapi: OpenApi,
     cli: Cli,
 ) -> Result<()> {
-    let global_rate_limit = global_layer(&cli).map_err(Error::hook)?;
+    let global_rate_limit = http_routing::global_layer(&cli).map_err(Error::hook)?;
     let addr = cli.server.listen_addr;
     let serve_addr = addr.to_string();
     let request_timeout = cli.server.request_timeout.duration();

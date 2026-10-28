@@ -10,16 +10,20 @@ path = "lib.rs"
 workspace = true
 
 [features]
+# 单独 `cargo check/test -p identity` 时激活 Blob 变体；server 以 default-features = false 引入
+default = ["dev-blob"]
+dev-blob = ["web_state/blob-fs"]
 # 由 server feature `otlp` 开启；单独测 identity 可不带 metrics
-default = []
 otel = ["dep:trace_kit", "trace_kit/otlp"]
 
 [dependencies]
+argon2 = { workspace = true }
 axum = { workspace = true }
 authn_kit = { workspace = true }
 config = { workspace = true }
 http_auth = { workspace = true }
-http_server = { workspace = true }
+http_extractors = { workspace = true }
+http_routing = { workspace = true }
 identity_contract = { workspace = true }
 jwt_kit = { workspace = true }
 cache_kit = { workspace = true }

@@ -37,7 +37,7 @@ thiserror = { workspace = true }
 EOF
 
 cat >"$CONTRACT/lib.rs" <<EOF
-//! ${NAME} 跨域契约（实体 / 值对象 / 错误）。
+//! ${NAME} 跨域契约（错误 / 跨域读模型；勿放 argon2、utoipa、runtime）。
 pub mod error;
 
 pub use error::DomainError;
@@ -65,10 +65,15 @@ path = "lib.rs"
 [lints]
 workspace = true
 
+[features]
+# 单独 cargo check/test -p ${NAME} 时激活 Blob；server 经 workspace default-features=false 引入时不会带上
+default = ["dev-blob"]
+dev-blob = ["web_state/blob-fs"]
+
 [dependencies]
 axum = { workspace = true }
 ${NAME}_contract = { path = "../${NAME}_contract" }
-http_server = { workspace = true }
+http_routing = { workspace = true }
 modrun = { workspace = true }
 serde = { workspace = true }
 utoipa = { workspace = true }
@@ -81,7 +86,7 @@ cat >"$FEAT/lib.rs" <<EOF
 //! ${NAME} 业务域。蓝本：features/identity。
 mod endpoint;
 
-use http_server::ProtectedRouter;
+use http_routing::ProtectedRouter;
 use modrun::Module;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -129,7 +134,8 @@ EOF
 echo "created $CONTRACT and $FEAT"
 echo "next:"
 echo "  1. workspace Cargo.toml members += features/${NAME}, features/${NAME}_contract"
-echo "  2. bin/server/Cargo.toml dependencies += ${NAME}"
-echo "  3. bin/server/main.rs .module(${NAME}::module())"
-echo "  4. 补 locale / migration（按需）"
-echo "  5. just ai-check ${NAME}"
+echo "  2. workspace.dependencies: ${NAME} = { path = \"features/${NAME}\", default-features = false }"
+echo "  3. bin/server/Cargo.toml dependencies += ${NAME}"
+echo "  4. bin/server/main.rs .module(${NAME}::module())"
+echo "  5. 补 locale / migration（按需）"
+echo "  6. just ai-check ${NAME}"

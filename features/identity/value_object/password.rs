@@ -22,6 +22,7 @@ impl Password {
     }
 
     /// 跳过校验/哈希直接包装（仅测试与已校验来源使用）。
+    #[cfg(test)]
     pub fn new_unchecked(password: String) -> Self {
         Self(password)
     }

@@ -7,6 +7,11 @@ use axum::http::request::Parts;
 use config::TrustedProxies;
 use real::extractor::{HeaderMap, IpExtractor};
 
+/// 运行时状态需提供可信代理列表，供 [`ClientIp`] 提取（避免绑定具体 `WebState`）。
+pub trait HasTrustedProxies {
+    fn trusted_proxies(&self) -> &TrustedProxies;
+}
+
 #[derive(Copy, Clone, Debug)]
 pub struct ClientIp(pub IpAddr);
 
@@ -26,16 +31,16 @@ pub fn client_ip_from_parts(parts: &Parts, trusted: &TrustedProxies) -> IpAddr {
     resolve_client_ip(peer, &header_map_from_parts(parts), trusted)
 }
 
-impl FromRequestParts<crate::WebState> for ClientIp {
+impl<S> FromRequestParts<S> for ClientIp
+where
+    S: HasTrustedProxies + Send + Sync,
+{
     type Rejection = Infallible;
 
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &crate::WebState,
-    ) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         Ok(ClientIp(client_ip_from_parts(
             parts,
-            &state.trusted_proxies,
+            state.trusted_proxies(),
         )))
     }
 }

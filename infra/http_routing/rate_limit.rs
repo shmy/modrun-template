@@ -10,8 +10,8 @@ use axum_governor::{
 };
 use config::TrustedProxies;
 use config::cli::Cli;
+use http_extractors::client_ip_from_parts;
 use web_error::WebError;
-use web_state::extractor::client_ip::client_ip_from_parts;
 
 #[derive(Clone)]
 struct TrustedClientIp {

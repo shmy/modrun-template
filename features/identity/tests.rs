@@ -1,4 +1,4 @@
-use identity_contract::HashedPassword;
+use crate::value_object::HashedPassword;
 use jwt_kit::{TokenHelper, TokenRealm};
 use secrecy::SecretString;
 use shared_contract::Id;

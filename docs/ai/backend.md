@@ -23,10 +23,12 @@
 | `bin/migrator` | 独立迁移入口（`just sqlx_up`）；部署/CI 先于 server 滚动 |
 | `infra/persistence` | PgPool、启动时迁移（与 migrator 共用 `migration::run_migrations`） |
 | `infra/cache` | 缓存 + 过期清理 task |
-| `infra/web_state` | `WebState`、ValidJson/Query/Path、`ClientIp` |
+| `infra/http_extractors` | ValidJson/Query/Path、TypedMultipart、`ClientIp` |
+| `infra/web_state` | `WebState` 运行时组装（re-export 提取器以兼容旧路径） |
 | `infra/web_error` | `WebError`、`JsonResponseType`、`register_domain_mapper` |
 | `infra/http_auth` | Bearer JWT、`AuthedAccount` |
-| `infra/http_server` | 路由聚合、超时、Scalar |
+| `infra/http_routing` | `PublicRouter` / `ProtectedRouter`、限流层（features 依赖此 crate，勿依赖胖 `http_server`） |
+| `infra/http_server` | 路由聚合、超时、Scalar、CORS |
 | `infra/locale` | Fluent；域 key 放 `{locale}/identity.ftl` 等 |
 | `crates/*_kit` | 框架无关工具库 |
 

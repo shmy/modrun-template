@@ -1,7 +1,7 @@
 use serde::Serialize;
 use shared_contract::{Id, PhoneNumber};
 
-use crate::value_object::hashed_password::HashedPassword;
+use crate::value_object::HashedPassword;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Account {

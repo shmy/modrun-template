@@ -13,25 +13,17 @@ workspace = true
 default = ["job-queue-pg"]
 job-queue-pg = ["job_queue_kit/pg"]
 job-queue-sqlite = ["job_queue_kit/sqlite"]
+# 由 server 的 blob-cos / blob-fs 或下游 `dev-blob` 打开；勿进 default。
+# 单独 `cargo check -p web_state`：加 `--features blob-fs`（或 blob-cos）；`just ai-check web_state` 已处理。
+blob-fs = ["blob_kit/fs"]
+blob-cos = ["blob_kit/cos"]
 
 [dependencies]
-modrun = { workspace = true }
-axum = { workspace = true }
-config = { workspace = true }
-jwt_kit = { workspace = true }
+blob_kit = { workspace = true }
 cache_kit = { workspace = true }
-# 与 server 默认 blob-cos 对齐；单独 `cargo test -p identity` 时也需有后端变体，否则 Blob 枚举为空
-blob_kit = { workspace = true, features = ["cos"] }
+config = { workspace = true }
+http_extractors = { workspace = true }
 job_queue_kit = { workspace = true }
+jwt_kit = { workspace = true }
+modrun = { workspace = true }
 sqlx = { workspace = true }
-serde_path_to_error = { workspace = true }
-validify = { workspace = true }
-validify_kit = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-serde_urlencoded = { workspace = true }
-form_urlencoded = { workspace = true }
-web_error = { workspace = true }
-real = { workspace = true }
-axum_typed_multipart = { workspace = true }
-tracing = { workspace = true }

@@ -5,13 +5,14 @@ use axum_typed_multipart::{FieldData, TryFromMultipart};
 use blob_kit::Blob;
 use file_contract::error::FileError;
 use file_contract::{ensure_image_reader, staging_dated_file_path};
+use http_extractors::ValidTypedMultipart;
 use image_kit::compress::{CompressOptions, ImageKit};
 use serde::Serialize;
 use tempfile::NamedTempFile;
 use tokio::task::spawn_blocking;
 use utoipa::ToSchema;
 use web_error::JsonResponseType;
-use web_state::{ValidTypedMultipart, WebState};
+use web_state::WebState;
 
 #[derive(TryFromMultipart, ToSchema)]
 pub(crate) struct UploadImageMultipart {

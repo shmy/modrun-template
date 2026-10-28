@@ -11,9 +11,9 @@ workspace = true
 
 [features]
 default = ["cos"]
-fs = []
-cos = []
-test-utils = []
+fs = ["opendal/services-fs"]
+cos = ["opendal/services-cos", "opendal/http-transport-reqwest"]
+test-utils = ["opendal/services-memory"]
 
 [dependencies]
 futures-util = { workspace = true }

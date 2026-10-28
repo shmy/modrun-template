@@ -6,12 +6,17 @@ edition = "2024"
 [lib]
 path = "lib.rs"
 
+[features]
+default = ["dev-blob"]
+dev-blob = ["blob_kit/fs", "web_state/blob-fs"]
+
 [dependencies]
 axum = { workspace = true }
 axum_typed_multipart = { workspace = true }
 blob_kit = { workspace = true }
 file_contract = { workspace = true }
-http_server = { workspace = true }
+http_extractors = { workspace = true }
+http_routing = { workspace = true }
 image_kit = { workspace = true }
 modrun = { workspace = true }
 rootcause = { workspace = true }

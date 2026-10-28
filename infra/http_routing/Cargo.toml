@@ -1,0 +1,27 @@
+[package]
+name = "http_routing"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "lib.rs"
+
+[lints]
+workspace = true
+
+[features]
+default = ["dev-blob"]
+# 单独 check 本 crate 时激活 Blob；server 图由 blob-cos/blob-fs 注入
+dev-blob = ["web_state/blob-fs"]
+# 由 server/http_server 的 otlp/otel 开启，限流命中时记 metrics
+otel = ["dep:trace_kit", "trace_kit/otlp"]
+
+[dependencies]
+axum = { workspace = true }
+axum-governor = { workspace = true }
+config = { workspace = true }
+http_extractors = { workspace = true }
+trace_kit = { workspace = true, optional = true }
+utoipa-axum = { workspace = true }
+web_error = { workspace = true }
+web_state = { workspace = true }

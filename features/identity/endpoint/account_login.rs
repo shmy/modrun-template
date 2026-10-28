@@ -1,8 +1,9 @@
 use axum::{Json, extract::State};
+use http_extractors::ValidJson;
 use identity_contract::IdentityError;
 use rootcause::Report;
 use web_error::{JsonResponseType, ProblemDetails, WebError};
-use web_state::{ValidJson, WebState};
+use web_state::WebState;
 
 use crate::dto::{LoginRequest, TokenResponse};
 use crate::repository;

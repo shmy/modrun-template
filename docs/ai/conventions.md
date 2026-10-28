@@ -10,7 +10,7 @@
 |------|------|------|
 | `crates/` | 通用 `*_kit` | modrun、axum、业务实体 |
 | `infra/` | 运行时接线 | 业务域逻辑 |
-| `features/{name}_contract/` | 实体、值对象、错误 | 依赖其他 contract（除 `shared_contract`）、infra、runtime |
+| `features/{name}_contract/` | 跨域错误/读模型（勿放 argon2/utoipa/runtime） | 依赖其他 contract（除 `shared_contract`）、infra、runtime |
 | `features/{name}/` | 端点、repository | 依赖其他 feature runtime |
 | `bin/server` | 组合根 | 业务逻辑 |
 

@@ -15,6 +15,7 @@ const MAX_REFRESH_TOKEN_LEN: usize = 128;
 pub struct RefreshToken(String);
 
 impl RefreshToken {
+    #[cfg(test)]
     pub fn new(token: String) -> Self {
         Self(token)
     }

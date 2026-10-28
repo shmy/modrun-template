@@ -9,6 +9,10 @@ path = "lib.rs"
 [lints]
 workspace = true
 
+[features]
+default = ["dev-blob"]
+dev-blob = ["web_state/blob-fs"]
+
 [dependencies]
 authn_kit = { workspace = true }
 axum = { workspace = true }

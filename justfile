@@ -1,7 +1,12 @@
+# 日常开发：blob-fs + 无 otlp（对象落 BLOB_FILE_ROOT）。对齐生产 COS/OTLP 请用 `cargo run -p server` / `just build`。
 dev:
     #!/usr/bin/env bash
     set -euo pipefail
-    cargo watch -q -c -x "run -p server" -w bin -w features -w infra -w crates
+    cargo watch -q -c -x "run -p server --no-default-features --features cache-pg,blob-fs,job-queue-pg" -w bin -w features -w infra -w crates
+
+# 与 just dev 相同 feature 集的快速类型检查（非生产 default）
+check:
+    cargo check -p server --no-default-features --features cache-pg,blob-fs,job-queue-pg
 
 build:
     cargo build --package server --release --locked
@@ -46,14 +51,19 @@ ai-check crate:
     #!/usr/bin/env bash
     set -euo pipefail
     set -a && [ -f .env ] && source .env
+    # web_state 无默认 blob 后端；单独 check 需显式打开
+    extra=()
+    if [[ "{{crate}}" == "web_state" ]]; then
+        extra=(--features blob-fs)
+    fi
     echo "=== Architecture test ==="
     cargo test -p server arch_test --quiet 2>&1 | tail -3
     echo "=== Format check ==="
     cargo fmt --all -- --check 2>&1 | tail -3
     echo "=== Check {{crate}} ==="
-    cargo check -p {{crate}} --message-format=short 2>&1 | tail -5
+    cargo check -p {{crate}} "${extra[@]}" --message-format=short 2>&1 | tail -5
     echo "=== Test {{crate}} ==="
-    cargo test -p {{crate}} --quiet 2>&1 | tail -10
+    cargo test -p {{crate}} "${extra[@]}" --quiet 2>&1 | tail -10
     echo "--- Done ---"
 
 pre_commit:
@@ -63,10 +73,12 @@ pre_commit:
     cargo machete
     cargo fixrs
     cargo fmt --all
+    # --all-features 会 unification 进全部后端（含 blob-fs）；质量门保留，与 just build 的轻量图分离
     cargo clippy --workspace --all-targets --all-features
     cargo test -p server arch_test
     
 test:
+    # workspace 多根会 unification：成员 default=dev-blob 与 server 的 blob-cos 并存于同一解析图
     cargo test --workspace
 
 test-features:

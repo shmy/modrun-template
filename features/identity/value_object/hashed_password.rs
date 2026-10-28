@@ -5,10 +5,10 @@ use std::fmt::Debug;
 use std::ops::Deref;
 use std::sync::LazyLock;
 
-use crate::error::IdentityError;
 use crate::value_object::password::Password;
 use argon2::Algorithm;
 use argon2::Version;
+use identity_contract::IdentityError;
 use std::fmt;
 use tokio::task::spawn_blocking;
 

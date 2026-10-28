@@ -31,10 +31,21 @@
 cp .env.example .env
 docker compose up -d
 just sqlx_up                 # 可选；server 启动时 persistence 也会自动迁移
-cargo run -p server          # 或 just dev
-just pre_commit              # 提交前检查
+cargo run -p server          # 生产默认 feature（blob-cos + otlp）
+just dev                     # 本地轻量：cache-pg + blob-fs + job-queue-pg，无 otlp（≠ 生产 default）
+just check                   # 与 just dev 相同 feature 集的 cargo check
+just pre_commit              # 提交前检查（含 --all-features）
 just e2e                     # Hurl 端到端（服务需已启动）
 ```
+
+`just dev` 走 `BLOB_FILE_*`（默认 `data/blob`）；需要 COS 时用 `cargo run -p server` 或显式 `blob-cos`。
+
+**Blob feature 与编译隔离：**
+
+* `cargo build/run -p server`（生产 default）只开 `blob-cos`，不编 FS/OpenDAL FS。
+* 各 feature/infra 的 `default = ["dev-blob"]` 仅方便单独 `cargo check/test -p <crate>`；workspace 依赖写了 `default-features = false`，避免被 server 当依赖时带进 fs。
+* `just pre_commit`（`--all-features`）与 `just test`（`--workspace`）会因 Cargo feature unification 同时编进 cos+fs——**质量门故意全开**；要量「轻量图」墙钟用 `just check` / `just build`，不要拿 pre_commit 当增量编译基线。若用 `cargo run -p server --all-features` 真跑进程，`infra/blob` 会显式选 **cos**（需 `BLOB_S3_*`），不会落盘 fs。
+* 单独 `cargo check -p web_state` 需 `--features blob-fs`（或 `blob-cos`）；`just ai-check web_state` 已自动加 `blob-fs`。
 
 **环境变量**：可选后端按编译 feature 前缀区分（`CACHE_REDB_PATH` / `CACHE_REDIS_URL` / `JOB_QUEUE_SQLITE_PATH` / `BLOB_FILE_*` / `BLOB_S3_*`）；`cache-pg` 与 `job-queue-pg` 共用 `DATABASE_URL`。完整列表见 `.env.example`。
 
@@ -83,13 +94,13 @@ just e2e                     # Hurl 端到端（服务需已启动）
 * Handler 签名：`State<WebState>` + `ValidJson` / `ValidQuery` / `ValidPath`，返回 `JsonResponseType<T>`（健康探针除外，返回裸 `Json`）
 * **`JsonResponseType<T>`** = `Result<axum::Json<T>, WebError>`，定义于 `web_error`；成功用 `Ok(Json(data))`
 * 鉴权提取器：`http_auth::AuthedAccount`（`shared_contract::Id`）；`Authorization` scheme 大小写不敏感（`Bearer` / `bearer`）
-* 提取器导出：`web_state` 提供 `ValidJson`、`ValidQuery`、`ValidPath`、`ValidTypedMultipart`
+* 提取器：`http_extractors` 提供 `ValidJson`、`ValidQuery`、`ValidPath`、`ValidTypedMultipart`、`ClientIp`（`web_state` 仍 re-export 以兼容旧路径）
 * 会话模型：每个账号同时只有一把 access JTI 与一把 refresh；再次登录或 refresh 会使旧 access 立即 `access_token_revoked`；**已轮换 refresh 被重放**时吊销该账号全部会话（仍返回 `refresh_token_invalid`，不泄露细节）
 * `JWT_SECRET` 必填且 ≥32 字节；`APP_ENV=production` 时关闭 Scalar UI，且拒绝默认 `SEED_ADMIN_PASSWORD`
 * `OTLP_ENDPOINT` 为空则关闭 OTLP 导出；`OTLP_SAMPLER_RATIO` 默认 `0.1`（`(0,1]`）
 * `CORS_ORIGINS` 空则不加 CORS 层；非空为逗号分隔 Origin 白名单
-* **客户端 IP**：`http_server` 使用 `into_make_service_with_connect_info`；限流等取 `web_state::ClientIp`。仅当直连对端落在 `TRUSTED_PROXIES`（逗号分隔 IP/CIDR）内时，才用 [`real`](https://crates.io/crates/real) 解析 `X-Forwarded-For` / `X-Real-IP` 等头，否则忽略代理头防伪造
-* **全局限流**（`axum-governor`）：按客户端 IP 令牌桶，`RATE_LIMIT_GLOBAL_*`；登录/刷新公开路由另有更紧的 `RATE_LIMIT_AUTH_*` 层（`infra/http_server/rate_limit.rs`）
+* **客户端 IP**：`http_server` 使用 `into_make_service_with_connect_info`；限流等取 `http_extractors::ClientIp`。仅当直连对端落在 `TRUSTED_PROXIES`（逗号分隔 IP/CIDR）内时，才用 [`real`](https://crates.io/crates/real) 解析 `X-Forwarded-For` / `X-Real-IP` 等头，否则忽略代理头防伪造
+* **全局限流**（`axum-governor`）：按客户端 IP 令牌桶，`RATE_LIMIT_GLOBAL_*`；登录/刷新公开路由另有更紧的 `RATE_LIMIT_AUTH_*` 层（`infra/http_routing/rate_limit.rs`）
 * **限流取舍（安全）**：登录/刷新**仅按客户端 IP** 限流，**不做** phone / refresh digest 维度。原因：原 cache 双维度滑动窗口虽能防单号多 IP 爆破，但 phone 维度可被攻击者定向锁死（v6 评审）；去掉该维度后，攻击者换 IP 可对同一手机号持续试密码——需靠 `RATE_LIMIT_AUTH_*` 收紧或后续加递增延迟 / 独立 phone 策略补回
 
 **关键：`l10n_middleware` 必须在 app 最外层。** `WebError::into_response()` 只写 extensions，需 locale 中间件转成 `ProblemDetails`；否则鉴权失败可能返回 200 空 body。
@@ -200,9 +211,10 @@ Workspace clippy（**禁止**，`just pre_commit` 含 `--all-targets`）：`unwr
 | 登录 / token 流程 | `features/identity/shared/token_ops.rs` |
 | JsonResponseType | `infra/web_error/response.rs` |
 | 鉴权中间件 | `infra/http_auth/middleware/authorize.rs` |
+| 路由新类型 / 限流 | `infra/http_routing/` |
 | HTTP 服务组装 | `infra/http_server/lib.rs` |
-| 请求体验证 | `infra/web_state/extractor/valid_json.rs` |
-| 客户端 IP 提取 | `infra/web_state/extractor/client_ip.rs` |
+| 请求体验证 | `infra/http_extractors/valid_json.rs` |
+| 客户端 IP 提取 | `infra/http_extractors/client_ip.rs` |
 | `#[sqlx::test]` 集成测试 | `features/identity/endpoint/account_create.rs` |
 | 独立 DB 迁移 | `bin/migrator/main.rs` |
 | E2E 用例 | `e2e/identity.hurl` |

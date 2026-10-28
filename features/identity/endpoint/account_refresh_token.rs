@@ -1,6 +1,7 @@
 use axum::{Json, extract::State};
+use http_extractors::ValidJson;
 use web_error::{JsonResponseType, ProblemDetails};
-use web_state::{ValidJson, WebState};
+use web_state::WebState;
 
 use crate::dto::{RefreshRequest, TokenResponse};
 use crate::shared::token_ops;

@@ -1362,7 +1362,8 @@ dependencies = [
  "axum_typed_multipart",
  "blob_kit",
  "file_contract",
- "http_server",
+ "http_extractors",
+ "http_routing",
  "image",
  "image_kit",
  "modrun",
@@ -1751,7 +1752,7 @@ name = "health"
 version = "0.1.0"
 dependencies = [
  "axum",
- "http_server",
+ "http_routing",
  "modrun",
  "serde",
  "sqlx",
@@ -1879,24 +1880,55 @@ dependencies = [
 ]
 
 [[package]]
-name = "http_server"
+name = "http_extractors"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "axum_typed_multipart",
+ "config",
+ "form_urlencoded",
+ "real",
+ "serde",
+ "serde_json",
+ "serde_path_to_error",
+ "serde_urlencoded",
+ "tracing",
+ "validify",
+ "validify_kit",
+ "web_error",
+]
+
+[[package]]
+name = "http_routing"
 version = "0.1.0"
 dependencies = [
  "axum",
  "axum-governor",
+ "config",
+ "http_extractors",
+ "trace_kit",
+ "utoipa-axum",
+ "web_error",
+ "web_state",
+]
+
+[[package]]
+name = "http_server"
+version = "0.1.0"
+dependencies = [
+ "axum",
  "axum-tracing-opentelemetry",
  "config",
  "http_auth",
+ "http_routing",
  "locale",
  "modrun",
  "tokio",
  "tower-http 0.7.1",
- "trace_kit",
  "tracing",
  "utoipa",
  "utoipa-axum",
  "utoipa-scalar",
- "web_error",
  "web_state",
 ]
 
@@ -2147,12 +2179,14 @@ checksum = "b9e0384b61958566e926dc50660321d12159025e767c18e043daf26b70104c39"
 name = "identity"
 version = "0.1.0"
 dependencies = [
+ "argon2",
  "authn_kit",
  "axum",
  "cache_kit",
  "config",
  "http_auth",
- "http_server",
+ "http_extractors",
+ "http_routing",
  "identity_contract",
  "jwt_kit",
  "migration",
@@ -2178,15 +2212,7 @@ dependencies = [
 name = "identity_contract"
 version = "0.1.0"
 dependencies = [
- "argon2",
- "rootcause",
- "serde",
- "shared_contract",
  "thiserror 2.0.21",
- "tokio",
- "tracing",
- "utoipa",
- "validify",
 ]
 
 [[package]]
@@ -5850,25 +5876,14 @@ dependencies = [
 name = "web_state"
 version = "0.1.0"
 dependencies = [
- "axum",
- "axum_typed_multipart",
  "blob_kit",
  "cache_kit",
  "config",
- "form_urlencoded",
+ "http_extractors",
  "job_queue_kit",
  "jwt_kit",
  "modrun",
- "real",
- "serde",
- "serde_json",
- "serde_path_to_error",
- "serde_urlencoded",
  "sqlx",
- "tracing",
- "validify",
- "validify_kit",
- "web_error",
 ]
 
 [[package]]
