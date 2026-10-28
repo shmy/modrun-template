@@ -184,7 +184,7 @@ rustls = { version = "0.23", default-features = false, features = [
 # 其 rust_crypto / aws_lc_rs backend 均会把整套非对称曲线（rsa、crypto-bigint、p256 等）
 # 编进二进制，而 jwt_kit 只用 HS256；hmac 0.13 与 workspace sha2 0.11（digest 0.11）配套
 hmac = { version = "0.13", default-features = false }
-base64 = { version = "0.22", default-features = false, features = ["std"] }
+base64 = { version = "0.23", default-features = false, features = ["std"] }
 argon2 = { version = "0.6", default-features = false, features = [
     "alloc",
     "password-hash",
