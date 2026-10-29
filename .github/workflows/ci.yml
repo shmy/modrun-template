@@ -115,3 +115,6 @@ jobs:
         run: cargo build -p server --profile release-ci --locked
       - name: lookup
         run: ls -lh target/release-ci
+
+
+
