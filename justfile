@@ -13,7 +13,7 @@ check:
     cargo check -p server --no-default-features --features {{dev_features}}
 
 # 生产 default（blob-cos + otlp）依赖图快照门禁；失败=契约/引用面回潮
-# 与 arch_test::server_shared_contract_tree_matches_golden 同源（ai-check / pre_commit / CI 均拦）
+# 与 arch_test::server_shared_contract_tree_matches_golden 同源（经 arch_test 进 ai-check / pre_commit / CI）
 tree-server:
     @bash scripts/check-server-tree.sh
 
@@ -94,8 +94,6 @@ ai-check crate: (lint crate)
     esac
     echo "=== Architecture test ==="
     cargo test -p server arch_test --quiet 2>&1 | tail -5
-    echo "=== shared_contract tree (prod default) ==="
-    just tree-server
     echo "=== Test {{crate}} ==="
     cargo test -p {{crate}} $extra --quiet 2>&1 | tail -10
     echo "--- Done ---"
