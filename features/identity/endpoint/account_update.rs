@@ -8,7 +8,7 @@ use sqlx::PgPool;
 use utoipa::ToSchema;
 use validify::Validify;
 use web_error::{JsonResponseType, ProblemDetails};
-use web_state::{HasPool, WebState};
+use web_state::{AppState, HasPool};
 
 use crate::dto::{AccountDetail, AccountIdPath, validate_phone_number};
 use crate::repository;
@@ -48,7 +48,7 @@ pub struct UpdateAccountRequest {
 )]
 pub async fn handler(
     AuthedAccount(actor_id): AuthedAccount,
-    State(state): State<WebState>,
+    State(state): State<AppState>,
     ValidPath(path): ValidPath<AccountIdPath>,
     ValidJson(request): ValidJson<UpdateAccountRequest>,
 ) -> JsonResponseType<AccountDetail> {

@@ -12,6 +12,12 @@ dev:
 check:
     cargo check -p server --no-default-features --features {{dev_features}}
 
+# 生产 default（blob-cos + otlp）依赖图轻量快照，便于发现契约/infra 回潮
+tree-server:
+    cargo tree -p server --edges normal -i shared_contract
+    @echo "---"
+    cargo tree -p server --edges normal --depth 1
+
 build:
     cargo build --package server --release --locked
     ls -lh target/release

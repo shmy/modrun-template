@@ -12,7 +12,7 @@ use tempfile::NamedTempFile;
 use tokio::task::spawn_blocking;
 use utoipa::ToSchema;
 use web_error::JsonResponseType;
-use web_state::{HasBlob, WebState};
+use web_state::{AppState, HasBlob};
 
 #[derive(TryFromMultipart, ToSchema)]
 pub(crate) struct UploadImageMultipart {
@@ -38,7 +38,7 @@ pub(crate) struct UploadImageResponse {
 )]
 #[tracing::instrument(skip(state, multipart))]
 pub(crate) async fn handler(
-    State(state): State<WebState>,
+    State(state): State<AppState>,
     ValidTypedMultipart(multipart): ValidTypedMultipart<UploadImageMultipart>,
 ) -> JsonResponseType<UploadImageResponse> {
     let response = execute(state.blob().clone(), multipart).await?;

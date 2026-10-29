@@ -1,7 +1,7 @@
 use axum::{Json, extract::State};
 use http_auth::AuthedAccount;
 use web_error::{JsonResponseType, ProblemDetails};
-use web_state::{HasPool, WebState};
+use web_state::{AppState, HasPool};
 
 use crate::dto::AccountPublic;
 use crate::repository;
@@ -20,7 +20,7 @@ use crate::repository;
 )]
 pub async fn handler(
     AuthedAccount(account_id): AuthedAccount,
-    State(state): State<WebState>,
+    State(state): State<AppState>,
 ) -> JsonResponseType<AccountPublic> {
     let account = repository::find_by_id(state.pool(), account_id).await?;
     Ok(Json(account.into()))

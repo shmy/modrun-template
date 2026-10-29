@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use validify::Validify;
 use web_error::{JsonResponseType, ProblemDetails};
-use web_state::{HasCache, HasPool, HasTokenHelper, WebState};
+use web_state::{AppState, HasCache, HasPool, HasTokenHelper};
 
 use crate::repository;
 use crate::shared::token_ops;
@@ -47,7 +47,7 @@ pub struct UpdatePasswordResponse {
 )]
 pub async fn handler(
     AuthedAccount(account_id): AuthedAccount,
-    State(state): State<WebState>,
+    State(state): State<AppState>,
     ValidJson(request): ValidJson<UpdatePasswordRequest>,
 ) -> JsonResponseType<UpdatePasswordResponse> {
     let response = execute(

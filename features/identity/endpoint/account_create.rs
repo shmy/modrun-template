@@ -9,7 +9,7 @@ use sqlx::PgPool;
 use utoipa::ToSchema;
 use validify::Validify;
 use web_error::{JsonResponseType, ProblemDetails};
-use web_state::{HasPool, WebState};
+use web_state::{AppState, HasPool};
 
 use crate::dto::validate_phone_number;
 use crate::repository;
@@ -55,7 +55,7 @@ pub struct CreateAccountResponse {
 )]
 pub async fn handler(
     AuthedAccount(actor_id): AuthedAccount,
-    State(state): State<WebState>,
+    State(state): State<AppState>,
     ValidJson(request): ValidJson<CreateAccountRequest>,
 ) -> JsonResponseType<CreateAccountResponse> {
     let response = execute(state.pool(), actor_id, request).await?;

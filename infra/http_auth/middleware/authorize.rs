@@ -8,7 +8,7 @@ use cache_kit::Cache;
 use jwt_kit::TokenHelper;
 use shared_contract::Id;
 use web_error::WebError;
-use web_state::{HasCache, HasTokenHelper, WebState};
+use web_state::{AppState, HasAuthCaps};
 
 use crate::extractor::AuthedAccount;
 use axum::extract::State;
@@ -49,7 +49,7 @@ impl Verifier for AuthVerifier<'_> {
 }
 
 pub async fn account_auth_middleware(
-    State(state): State<WebState>,
+    State(state): State<AppState>,
     request: Request,
     next: Next,
 ) -> Response {
@@ -60,7 +60,7 @@ pub async fn account_auth_middleware(
 }
 
 async fn authenticate_account(
-    state: &WebState,
+    state: &impl HasAuthCaps,
     mut request: Request,
     next: Next,
 ) -> Result<Response, WebError> {

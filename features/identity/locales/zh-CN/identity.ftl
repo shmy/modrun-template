@@ -1,10 +1,6 @@
-access_token_missing = 需要授权令牌
-access_token_invalid = 访问令牌无效
-access_token_revoked = 访问令牌已被撤销
 phone_number_too_short = 手机号码过短
 phone_number_too_long = 手机号码过长
 phone_number_invalid_cn_mobile = 请输入有效的11位中国大陆手机号码
-authed_account_not_found = 当前认证账号不存在
 account_not_found = 用户不存在
 account_duplicated = 账号已存在
 account_password_encode_failed = 密码编码失败

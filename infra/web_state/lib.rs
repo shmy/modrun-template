@@ -11,7 +11,9 @@ use modrun::Module;
 
 mod caps;
 
-pub use caps::{HasBlob, HasCache, HasJobs, HasPool, HasTokenHelper};
+pub use caps::{
+    HasAuthCaps, HasBlob, HasBlobOnly, HasCache, HasJobs, HasPool, HasSession, HasTokenHelper,
+};
 
 // 兼容旧 import 路径；新代码优先直接依赖 `http_extractors`。
 pub use http_extractors::{ClientIp, ValidJson, ValidPath, ValidQuery, ValidTypedMultipart};
@@ -25,6 +27,9 @@ pub struct WebState {
     pub token_helper: TokenHelper,
     pub trusted_proxies: TrustedProxies,
 }
+
+/// 组合根组装的具体 state；`routes!(handler::<AppState>)` 用。
+pub type AppState = WebState;
 
 impl HasPool for WebState {
     fn pool(&self) -> &PgPool {

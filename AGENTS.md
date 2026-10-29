@@ -36,9 +36,9 @@
 * **默认只跑** `just lint <crate>` / `just ai-check <crate>`（justfile 会按 crate 显式加 `blob-fs`）。
 * **禁止**在迭代中默认跑 `cargo test --workspace`、`cargo clippy --all-features`、`just pre_commit`（后者仅提交前一次）。
 * **契约保持纯**：`*_contract` / `shared_contract` 禁止依赖 `utoipa` / `axum` / `sqlx` / `validify`（`arch_test` 强制）。改一处 `Id`/`PhoneNumber` 值对象不应牵动 OpenAPI/DB 适配层重编。
-* **OpenAPI / validify** 放使用方 DTO（如 `features/identity/dto.rs` 的 `#[schema(value_type = …)]` / `validate_phone_number`）。
-* **窄 feature 验证**：`just check`（dev：`cache-pg,blob-fs,job-queue-pg`）与 `cargo check -p server`（生产 default：`blob-cos`+`otlp`）分开跑。
-* Handlers 通过 `web_state::{HasPool, HasCache, HasBlob, HasJobs, HasTokenHelper}` 取能力；完整 `WebState` 仍由组合根组装（双 bin 拆分另议）。
+* **OpenAPI / validify** 放使用方 DTO。手机号请求字段钉死：`String` + `#[validate(custom(validate_phone_number))]`，校验通过后再 `PhoneNumber::new_unchecked` / `LoginRequest::phone()`；响应侧可直接持 `PhoneNumber` + `#[schema(value_type = String)]`。
+* **窄 feature 验证**：`just check`（dev：`cache-pg,blob-fs,job-queue-pg`）与 `cargo check -p server`（生产 default：`blob-cos`+`otlp`）分开跑；可选 `just tree-server` 看生产依赖图。
+* Handlers：`State<AppState>`（`AppState = WebState` 别名）；只通过 `HasPool` / `HasCache` / `HasBlob` / `HasSession` / `HasAuthCaps` 等方法取能力（utoipa `routes!` 不支持泛型 turbofish）。组合根仍组装完整 `WebState`（双 bin 另议）。
 
 ## 项目概览
 
@@ -151,7 +151,7 @@ just e2e                     # Hurl 端到端（服务需已启动）
 ## 错误与 i18n
 
 * Handler 错误统一 `WebError`（`InvalidParams` / `L10n`）；域错误（如 `IdentityError`）实现 `L10nKeyedError` 并在 feature `module()` 注册 `register_domain_mapper`
-* HTTP/校验通用 key 放 `infra/locale/locales/{en-US,zh-CN}/shared.ftl`；**域专属** FTL 放 `features/<name>/locales/{en-US,zh-CN}/`，在 `module()` 里 `locale::register_ftl`（**禁止**在 `infra/locale` 静态 include 域 ftl；**禁止**同一 key 出现在多个 ftl）
+* HTTP/校验/鉴权通用 key 放 `infra/locale/locales/{en-US,zh-CN}/shared.ftl`；**域专属** FTL 放 `features/<name>/locales/{en-US,zh-CN}/`，在 `module()` 里 `locale::register_ftl`（**禁止**在 `infra/locale` 静态 include 或测试里 `include_str!` 域 FTL；shared 在 `-p locale` 测，域 FTL 在对应 feature 测；**禁止**同一 key 出现在多个 ftl）
 * 状态码按 **命名约定**（`web_error::l10n_status_code`），无域白名单：`access_token_*` / `authed_account_not_found` / `*_invalid_credentials` / `*_token_invalid` → 401；`*_forbidden` / `*_protected` → 403；`*_not_found` → 404；`*_duplicated` / `*_version_conflict` → 409；`rate_limited` → 429；`cache_unavailable` → 503；其余 L10n 与 `InvalidParams` → 400
 * validify 字段错误：`#[validate(..., message = "l10n_key")]` 或 `field_err!` 宏
 * serde/validify 错误分类工具在 `validify_kit`，extractor 在 `http_extractors`（`web_state` 仍 re-export）
@@ -160,7 +160,7 @@ just e2e                     # Hurl 端到端（服务需已启动）
 
 1. `just new-feature <name>` 生成骨架（含 contract 口径说明、locale 自注册、blob-fs 无 default）
 2. 在 `features/<name>/` 实现 `module()`，用 `provide_group` 注册路由（蓝本：`features/identity/lib.rs`）
-3. **endpoint 文件命名**：`{entity}_{action}.rs`，handler 函数统一叫 `handler`；State 只依赖需要的 `Has*` trait
+3. **endpoint 文件命名**：`{entity}_{action}.rs`，handler 统一叫 `handler`；`State<AppState>` + 仅调用所需 `Has*`
 4. 跨域类型放 `features/<name>_contract/`（纯；OpenAPI 适配在 runtime DTO）
 5. 在 workspace `Cargo.toml`、`bin/server/Cargo.toml` 添加成员与依赖
 6. 在 `bin/server/main.rs` 加 `.module(<name>::module())`（须在 `http_server` 之前，保证 `register_ftl` 先于首个请求）

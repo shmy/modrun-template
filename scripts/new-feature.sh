@@ -114,7 +114,6 @@ use http_routing::ProtectedRouter;
 use modrun::Module;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
-
 pub fn module() -> Module {
     shared::l10n::register_${NAME}_locales();
     // shared::domain_error::register_${NAME}_domain_mapper(); // 有域错误时打开
@@ -159,7 +158,7 @@ use serde::Serialize;
 use utoipa::ToSchema;
 use web_error::JsonResponseType;
 // handler 统一叫 handler；含副作用时再拆 execute
-// State 只依赖需要的 trait：web_state::{HasPool, HasBlob, ...}
+// State<AppState> + HasPool/HasBlob/…；手机号 DTO：String + validate_phone_number → new_unchecked / phone()
 
 #[derive(Serialize, ToSchema)]
 pub struct PingResponse {
@@ -187,12 +186,12 @@ created $CONTRACT and $FEAT
   3. bin/server/Cargo.toml dependencies += ${NAME}
   4. bin/server/main.rs .module(${NAME}::module())  （须在 http_server 之前，以便 register_ftl 生效）
   5. contract：仅跨域错误/读模型；OpenAPI/validify 放 features/${NAME} DTO
-  6. locale：已生成 locales/{en-US,zh-CN}/${NAME}.ftl + shared/l10n.rs 自注册
-  7. 状态码：遵循 web_error 命名约定（*_not_found→404、*_forbidden→403、*_duplicated→409、
+     手机号：请求字段 String + validate_phone_number → PhoneNumber::new_unchecked / phone()
+  6. locale：locales/{en-US,zh-CN}/${NAME}.ftl + shared/l10n.rs；域 FTL 在本 crate 测，勿改 locale 去 include features/
+  7. 状态码：命名约定（*_not_found→404、*_forbidden→403、*_duplicated→409、
      *_invalid_credentials / *_token_invalid→401）；勿改 infra 白名单
   8. 验证（窄 feature，禁止 --all-features / --workspace 迭代）：
        just lint ${NAME}
        just ai-check ${NAME}
-       just check                    # 开发 feature 集
-       cargo check -p server         # 生产 default
+       just check / cargo check -p server / 可选 just tree-server
 EOF

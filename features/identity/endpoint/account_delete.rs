@@ -8,7 +8,7 @@ use shared_contract::Id;
 use sqlx::PgPool;
 use utoipa::ToSchema;
 use web_error::{JsonResponseType, ProblemDetails};
-use web_state::{HasCache, HasPool, HasTokenHelper, WebState};
+use web_state::{AppState, HasCache, HasPool, HasTokenHelper};
 
 use crate::dto::AccountIdPath;
 use crate::repository;
@@ -37,7 +37,7 @@ pub struct DeleteAccountResponse {
 )]
 pub async fn handler(
     AuthedAccount(actor_id): AuthedAccount,
-    State(state): State<WebState>,
+    State(state): State<AppState>,
     ValidPath(path): ValidPath<AccountIdPath>,
 ) -> JsonResponseType<DeleteAccountResponse> {
     let response = execute(

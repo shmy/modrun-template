@@ -8,7 +8,7 @@ use sqlx::PgPool;
 use utoipa::IntoParams;
 use validify::Validify;
 use web_error::{JsonResponseType, ProblemDetails};
-use web_state::{HasPool, WebState};
+use web_state::{AppState, HasPool};
 
 use crate::dto::{AccountPublic, AccountSearchResponse};
 use crate::repository;
@@ -70,7 +70,7 @@ impl SearchAccountQuery {
 )]
 pub async fn handler(
     AuthedAccount(actor_id): AuthedAccount,
-    State(state): State<WebState>,
+    State(state): State<AppState>,
     ValidQuery(query): ValidQuery<SearchAccountQuery>,
 ) -> JsonResponseType<CursorPagingResult<AccountPublic>> {
     let response = execute(state.pool(), actor_id, query).await?;

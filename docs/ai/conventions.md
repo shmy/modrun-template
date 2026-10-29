@@ -21,15 +21,15 @@
 
 * 单文件 `features/{domain}/endpoint/{entity}_{action}.rs`：DTO + `#[utoipa::path]` + `handler`（+ `execute` 若有副作用）
 * handler 返回 `JsonResponseType<T>`；健康探针返回裸 `Json`
-* `State` 通过 `HasPool` / `HasCache` / `HasBlob` / `HasTokenHelper` 等取能力，避免整包字段耦合
+* `State<AppState>` + 只调用所需 `Has*`（`routes!` 不支持泛型；组合根仍是完整 `WebState`）
 * 含副作用（`revoke_tokens` 等）必须在 `execute`，handler 不重复逻辑
-* 契约类型无 `ToSchema` 时：字段上 `#[schema(value_type = …)]`，或本地 OpenAPI 壳类型
+* 契约类型无 `ToSchema`：字段 `#[schema(value_type = …)]`；手机号请求体用 `String` + `validate_phone_number`，通过后 `PhoneNumber::new_unchecked` / `phone()`
 
 ## 错误与 i18n
 
 * 领域错误 `thiserror` + `#[error("snake_case_key")]`
-* 通用 key → `infra/locale/locales/*/shared.ftl`；域 key → `features/{domain}/locales/*/{domain}.ftl` + `locale::register_ftl`
-* **禁止**同一 key 出现在多个 ftl（Fluent bundle 重复会 panic）
+* 通用/鉴权 key → `infra/locale/locales/*/shared.ftl`（`-p locale` 测）；域 key → `features/{domain}/locales/*/` + `register_ftl`（该 feature 测）
+* **禁止** `infra/locale` 测试 `include_str!` features/；**禁止**同一 key 出现在多个 ftl
 * 域错误实现 `L10nKeyedError` 并在 `module()` 注册 mapper
 * 状态码：命名约定（`*_not_found`→404、`*_forbidden`/`*_protected`→403、`*_duplicated`/`*_version_conflict`→409、`*_invalid_credentials`/`*_token_invalid`/`access_token_*`→401）；勿在 `web_error` 加域特例白名单
 

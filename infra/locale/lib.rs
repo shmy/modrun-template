@@ -45,8 +45,7 @@ pub fn register_ftl(locale: &'static str, ftl: &'static str) {
 }
 
 fn ensure_shared_registered() {
-    // shared.ftl 始终由 locale crate 提供；幂等：仅在 registry 尚无 shared 标记时插入。
-    // 用一次静态 flag 避免重复 add 同内容（Fluent 重复 key 会 fail）。
+    // shared.ftl 始终由 locale crate 提供；幂等。
     static SHARED_DONE: Once = Once::new();
     SHARED_DONE.call_once(|| {
         registry_lock().push(("en-US", include_str!("locales/en-US/shared.ftl")));
@@ -117,7 +116,8 @@ pub fn translate_with_args(locale: &str, key: &str, args: &[(&str, String)]) -> 
     key.to_string()
 }
 
-fn try_translate(locale: &str, key: &str) -> Option<String> {
+/// 查询 key 是否在已注册 bundle 中（域测试用；locale 本 crate 测试只覆盖 shared.ftl）。
+pub fn try_translate(locale: &str, key: &str) -> Option<String> {
     try_translate_with_args(locale, key, &FluentArgs::new())
 }
 
@@ -146,34 +146,9 @@ mod tests {
     use std::collections::HashSet;
     use std::fs;
     use std::path::Path;
-    use std::sync::Once;
-
-    fn seal_with_domain_ftls_for_tests() {
-        // 测试不经 modrun module()；在此补注册域 FTL，模拟 feature 自注册。
-        static ONCE: Once = Once::new();
-        ONCE.call_once(|| {
-            register_ftl(
-                "en-US",
-                include_str!("../../features/identity/locales/en-US/identity.ftl"),
-            );
-            register_ftl(
-                "zh-CN",
-                include_str!("../../features/identity/locales/zh-CN/identity.ftl"),
-            );
-            register_ftl(
-                "en-US",
-                include_str!("../../features/file/locales/en-US/file.ftl"),
-            );
-            register_ftl(
-                "zh-CN",
-                include_str!("../../features/file/locales/zh-CN/file.ftl"),
-            );
-        });
-    }
 
     #[test]
     fn test_translate_known_key_zh() {
-        seal_with_domain_ftls_for_tests();
         assert_eq!(
             translate("zh-CN", "internal_server_error"),
             "服务器内部错误"
@@ -182,7 +157,6 @@ mod tests {
 
     #[test]
     fn test_translate_with_args_interpolates_field() {
-        seal_with_domain_ftls_for_tests();
         let args = [("field", "phone".to_string())];
         assert_eq!(
             translate_with_args("zh-CN", "json_body_missing_field", &args),
@@ -200,7 +174,6 @@ mod tests {
 
     #[test]
     fn test_translate_known_key_en() {
-        seal_with_domain_ftls_for_tests();
         assert_eq!(
             translate("en-US", "internal_server_error"),
             "Internal server error"
@@ -209,46 +182,24 @@ mod tests {
 
     #[test]
     fn test_translate_fallback_to_default() {
-        seal_with_domain_ftls_for_tests();
         let result = translate("ja", "internal_server_error");
         assert_eq!(result, "Internal server error");
     }
 
     #[test]
     fn test_translate_unknown_key() {
-        seal_with_domain_ftls_for_tests();
         let result = translate("en-US", "no_such_key");
         assert_eq!(result, "no_such_key");
     }
 
     #[test]
-    fn test_translate_phone_number_too_short() {
-        seal_with_domain_ftls_for_tests();
-        assert_eq!(translate("zh-CN", "phone_number_too_short"), "手机号码过短");
-    }
-
-    #[test]
-    fn test_translate_phone_number_invalid_cn_mobile() {
-        seal_with_domain_ftls_for_tests();
-        assert_eq!(
-            translate("zh-CN", "phone_number_invalid_cn_mobile"),
-            "请输入有效的11位中国大陆手机号码"
-        );
-        assert_eq!(
-            translate("en-US", "phone_number_invalid_cn_mobile"),
-            "Must be a valid 11-digit mainland China mobile number"
-        );
-    }
-
-    #[test]
-    fn test_all_l10n_keys_used_in_code_exist_in_bundles() {
-        seal_with_domain_ftls_for_tests();
+    fn test_infra_and_kit_l10n_keys_exist_in_shared() {
+        // 只扫 infra/ + crates/；域 key 由各 feature 自测，禁止本测试 include features/ FTL。
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..");
         let thiserror_re =
             Regex::new(r#"#\[error\("([^"]*)"\)\]"#).expect("compile thiserror regex");
         let web_error_re = Regex::new(r#"WebError::L10n\("([a-zA-Z0-9_-]+)"\.to_string\(\)\)"#)
             .expect("compile web error regex");
-        // 不用 \s：workspace regex 关了 unicode-perl，隔离测 -p locale 时 \s 编不过
         let field_err_re =
             Regex::new(r#"field_err!\([ \t\n\r]*"[^"]*"[ \t\n\r]*,[ \t\n\r]*"([a-zA-Z0-9_-]+)""#)
                 .expect("compile field_err regex");
@@ -256,34 +207,36 @@ mod tests {
         let mut keys = HashSet::new();
         let mut violations = Vec::new();
 
-        collect_rs_files(&root, &mut |path| {
-            let content = fs::read_to_string(path).expect("read source");
-            for cap in thiserror_re.captures_iter(&content) {
-                let msg = &cap[1];
-                if msg
-                    .bytes()
-                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
-                {
-                    keys.insert(msg.to_string());
-                } else if msg.contains('{') {
-                    violations.push(format!(
-                        "参数化 #[error] 不允许出现在域代码中：{}: {msg}",
-                        path.display()
-                    ));
-                } else {
-                    violations.push(format!(
-                        "#[error] 消息必须是 snake_case key：{}: {msg}",
-                        path.display()
-                    ));
+        for dir in ["infra", "crates"] {
+            collect_rs_files(&root.join(dir), &mut |path| {
+                let content = fs::read_to_string(path).expect("read source");
+                // 跳过单元测试模块里的示例 key（如 web_error 状态码用例里的 account_*）
+                let content = strip_cfg_test_modules(&content);
+                for cap in thiserror_re.captures_iter(&content) {
+                    let msg = &cap[1];
+                    if msg
+                        .bytes()
+                        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+                    {
+                        keys.insert(msg.to_string());
+                    } else if msg.contains('{') {
+                        violations
+                            .push(format!("参数化 #[error] 不允许：{}: {msg}", path.display()));
+                    } else {
+                        violations.push(format!(
+                            "#[error] 须为 snake_case key：{}: {msg}",
+                            path.display()
+                        ));
+                    }
                 }
-            }
-            for cap in web_error_re.captures_iter(&content) {
-                keys.insert(cap[1].to_string());
-            }
-            for cap in field_err_re.captures_iter(&content) {
-                keys.insert(cap[1].to_string());
-            }
-        });
+                for cap in web_error_re.captures_iter(&content) {
+                    keys.insert(cap[1].to_string());
+                }
+                for cap in field_err_re.captures_iter(&content) {
+                    keys.insert(cap[1].to_string());
+                }
+            });
+        }
 
         assert!(
             violations.is_empty(),
@@ -294,12 +247,21 @@ mod tests {
         for key in &keys {
             assert!(
                 try_translate("en-US", key).is_some(),
-                "missing key `{key}` in en-US locales"
+                "missing key `{key}` in en-US shared.ftl"
             );
             assert!(
                 try_translate("zh-CN", key).is_some(),
-                "missing key `{key}` in zh-CN locales"
+                "missing key `{key}` in zh-CN shared.ftl"
             );
+        }
+    }
+
+    fn strip_cfg_test_modules(src: &str) -> String {
+        // 粗粒度：丢掉 `#[cfg(test)]` 起至文件末尾的测试模块，避免示例 L10n 污染 shared 门禁。
+        if let Some(i) = src.find("#[cfg(test)]") {
+            src[..i].to_string()
+        } else {
+            src.to_string()
         }
     }
 

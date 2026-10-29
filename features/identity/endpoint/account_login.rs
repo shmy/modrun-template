@@ -3,7 +3,7 @@ use http_extractors::ValidJson;
 use identity_contract::IdentityError;
 use rootcause::Report;
 use web_error::{JsonResponseType, ProblemDetails, WebError};
-use web_state::{HasCache, HasPool, HasTokenHelper, WebState};
+use web_state::{AppState, HasCache, HasPool, HasTokenHelper};
 
 use crate::dto::{LoginRequest, TokenResponse};
 use crate::repository;
@@ -24,7 +24,7 @@ use crate::value_object::HashedPassword;
     )
 )]
 pub async fn handler(
-    State(state): State<WebState>,
+    State(state): State<AppState>,
     ValidJson(request): ValidJson<LoginRequest>,
 ) -> JsonResponseType<TokenResponse> {
     let row = match repository::find_auth_by_phone(state.pool(), &request.phone()).await? {

@@ -4,7 +4,7 @@ use std::time::Instant;
 use axum::{Json, extract::State};
 use serde::Serialize;
 use utoipa::ToSchema;
-use web_state::{HasPool, WebState};
+use web_state::{AppState, HasPool};
 
 static PROCESS_START: LazyLock<Instant> = LazyLock::new(Instant::now);
 
@@ -34,7 +34,7 @@ pub struct HealthzResponse {
     tag = "health",
     responses((status = 200, body = HealthzResponse)),
 )]
-pub async fn handler(State(state): State<WebState>) -> Json<HealthzResponse> {
+pub async fn handler(State(state): State<AppState>) -> Json<HealthzResponse> {
     let pool = state.pool();
     let options = pool.options();
     Json(HealthzResponse {
