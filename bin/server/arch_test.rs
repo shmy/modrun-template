@@ -15,6 +15,7 @@ use std::collections::HashSet;
 use std::fs::read_dir;
 use std::fs::read_to_string;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -279,4 +280,21 @@ fn feature_package_names_match_directories() {
             "directory `{dir_name}` does not match package name `{pkg_name}`"
         );
     }
+}
+
+/// 生产 default（blob-cos+otlp）下 `shared_contract` 依赖图快照；与 `just tree-server` 同源。
+/// 失败 = 契约沾框架/DB，或额外 crate 依赖了 shared_contract（增量编译回潮）。
+/// 有意变更：`just tree-server-bless` 后提交 golden。
+#[test]
+fn server_shared_contract_tree_matches_golden() {
+    let script = workspace_root().join("scripts/check-server-tree.sh");
+    let status = Command::new("bash")
+        .arg(&script)
+        .current_dir(workspace_root())
+        .status()
+        .unwrap_or_else(|e| panic!("failed to spawn {}: {e}", script.display()));
+    assert!(
+        status.success(),
+        "shared_contract cargo-tree golden mismatch（见 scripts/check-server-tree.sh / just tree-server-bless）"
+    );
 }

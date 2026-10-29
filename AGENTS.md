@@ -28,8 +28,8 @@
 | 时机 | 命令 | 内容 |
 |------|------|------|
 | 迭代中小步 | `just lint <crate>` | fmt + clippy（秒级） |
-| 端点完成 / 提交前 | `just ai-check <crate>` | + arch_test + 定向测试 |
-| 提交前最终门 | `just pre_commit` | 全 workspace 全 feature 全 target（慢，只跑一次） |
+| 端点完成 / 提交前 | `just ai-check <crate>` | + arch_test + `tree-server` 快照 + 定向测试 |
+| 提交前最终门 | `just pre_commit` | 全 workspace 全 feature 全 target（慢，只跑一次；含 arch_test/tree 快照） |
 
 ## 增量编译友好（AI 必读）
 
@@ -37,7 +37,8 @@
 * **禁止**在迭代中默认跑 `cargo test --workspace`、`cargo clippy --all-features`、`just pre_commit`（后者仅提交前一次）。
 * **契约保持纯**：`*_contract` / `shared_contract` 禁止依赖 `utoipa` / `axum` / `sqlx` / `validify`（`arch_test` 强制）。改一处 `Id`/`PhoneNumber` 值对象不应牵动 OpenAPI/DB 适配层重编。
 * **OpenAPI / validify** 放使用方 DTO。手机号请求字段钉死：`String` + `#[validate(custom(validate_phone_number))]`，校验通过后再 `PhoneNumber::new_unchecked` / `LoginRequest::phone()`；响应侧可直接持 `PhoneNumber` + `#[schema(value_type = String)]`。
-* **窄 feature 验证**：`just check`（dev：`cache-pg,blob-fs,job-queue-pg`）与 `cargo check -p server`（生产 default：`blob-cos`+`otlp`）分开跑；可选 `just tree-server` 看生产依赖图。
+* **窄 feature 验证**：`just check`（dev：`cache-pg,blob-fs,job-queue-pg`）与 `cargo check -p server`（生产 default：`blob-cos`+`otlp`）分开跑。
+* **`just tree-server` / arch_test golden**：生产 default 下核对 `shared_contract` 的 invert 引用面与直接依赖快照（`bin/server/testdata/`）。挂在 `just ai-check`（并经 arch_test 进 pre_commit/CI）。**失败** = 契约又依赖框架/DB，或额外 crate 依赖了 `shared_contract`（增量编译回潮）；有意变更跑 `just tree-server-bless` 后审 diff 再提交。
 * Handlers：`State<AppState>`（`AppState = WebState` 别名）；业务逻辑用 `&impl HasSession`（pool+cache+token）、`&impl HasAuthCaps`（cache+token）、`&impl HasPool` / `HasBlob` 等窄边界（utoipa `routes!` 不支持泛型 handler）。组合根仍组装完整 `WebState`（双 bin 另议）。
 
 ## 项目概览
