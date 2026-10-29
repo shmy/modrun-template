@@ -113,3 +113,5 @@ jobs:
         run: cargo run -p migrator --locked
       - name: release-ci 构建（与 just build_release_ci 同 profile）
         run: cargo build -p server --profile release-ci --locked
+      - name: lookup
+        run: ls -lh target/release-ci
