@@ -21,7 +21,7 @@
 
 * 单文件 `features/{domain}/endpoint/{entity}_{action}.rs`：DTO + `#[utoipa::path]` + `handler`（+ `execute` 若有副作用）
 * handler 返回 `JsonResponseType<T>`；健康探针返回裸 `Json`
-* `State<AppState>` + 只调用所需 `Has*`（`routes!` 不支持泛型；组合根仍是完整 `WebState`）
+* `State<AppState>`；业务逻辑 `&impl HasSession` / `HasAuthCaps` / `HasPool` / `HasBlob`（`routes!` 不支持泛型 handler）
 * 含副作用（`revoke_tokens` 等）必须在 `execute`，handler 不重复逻辑
 * 契约类型无 `ToSchema`：字段 `#[schema(value_type = …)]`；手机号请求体用 `String` + `validate_phone_number`，通过后 `PhoneNumber::new_unchecked` / `phone()`
 

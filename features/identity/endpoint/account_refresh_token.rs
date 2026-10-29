@@ -1,7 +1,7 @@
 use axum::{Json, extract::State};
 use http_extractors::ValidJson;
 use web_error::{JsonResponseType, ProblemDetails};
-use web_state::{AppState, HasCache, HasTokenHelper};
+use web_state::{AppState, HasAuthCaps};
 
 use crate::dto::{RefreshRequest, TokenResponse};
 use crate::shared::token_ops;
@@ -23,6 +23,10 @@ pub async fn handler(
     State(state): State<AppState>,
     ValidJson(request): ValidJson<RefreshRequest>,
 ) -> JsonResponseType<TokenResponse> {
+    run(&state, request).await
+}
+
+async fn run(state: &impl HasAuthCaps, request: RefreshRequest) -> JsonResponseType<TokenResponse> {
     let account_id = token_ops::consume_refresh_token(
         state.cache(),
         state.token_helper(),

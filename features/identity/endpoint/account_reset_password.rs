@@ -11,7 +11,7 @@ use sqlx::PgPool;
 use utoipa::ToSchema;
 use validify::Validify;
 use web_error::{JsonResponseType, ProblemDetails};
-use web_state::{AppState, HasCache, HasPool, HasTokenHelper};
+use web_state::{AppState, HasSession};
 
 use crate::dto::AccountIdPath;
 use crate::repository;
@@ -50,6 +50,15 @@ pub async fn handler(
     State(state): State<AppState>,
     ValidPath(path): ValidPath<AccountIdPath>,
     ValidJson(request): ValidJson<ResetPasswordRequest>,
+) -> JsonResponseType<ResetPasswordResponse> {
+    run(&state, actor_id, path, request).await
+}
+
+async fn run(
+    state: &impl HasSession,
+    actor_id: Id,
+    path: AccountIdPath,
+    request: ResetPasswordRequest,
 ) -> JsonResponseType<ResetPasswordResponse> {
     let response = execute(
         state.pool(),

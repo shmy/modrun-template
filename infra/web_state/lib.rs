@@ -11,9 +11,7 @@ use modrun::Module;
 
 mod caps;
 
-pub use caps::{
-    HasAuthCaps, HasBlob, HasBlobOnly, HasCache, HasJobs, HasPool, HasSession, HasTokenHelper,
-};
+pub use caps::{HasAuthCaps, HasBlob, HasCache, HasJobs, HasPool, HasSession, HasTokenHelper};
 
 // 兼容旧 import 路径；新代码优先直接依赖 `http_extractors`。
 pub use http_extractors::{ClientIp, ValidJson, ValidPath, ValidQuery, ValidTypedMultipart};

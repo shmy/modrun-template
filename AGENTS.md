@@ -38,7 +38,7 @@
 * **契约保持纯**：`*_contract` / `shared_contract` 禁止依赖 `utoipa` / `axum` / `sqlx` / `validify`（`arch_test` 强制）。改一处 `Id`/`PhoneNumber` 值对象不应牵动 OpenAPI/DB 适配层重编。
 * **OpenAPI / validify** 放使用方 DTO。手机号请求字段钉死：`String` + `#[validate(custom(validate_phone_number))]`，校验通过后再 `PhoneNumber::new_unchecked` / `LoginRequest::phone()`；响应侧可直接持 `PhoneNumber` + `#[schema(value_type = String)]`。
 * **窄 feature 验证**：`just check`（dev：`cache-pg,blob-fs,job-queue-pg`）与 `cargo check -p server`（生产 default：`blob-cos`+`otlp`）分开跑；可选 `just tree-server` 看生产依赖图。
-* Handlers：`State<AppState>`（`AppState = WebState` 别名）；只通过 `HasPool` / `HasCache` / `HasBlob` / `HasSession` / `HasAuthCaps` 等方法取能力（utoipa `routes!` 不支持泛型 turbofish）。组合根仍组装完整 `WebState`（双 bin 另议）。
+* Handlers：`State<AppState>`（`AppState = WebState` 别名）；业务逻辑用 `&impl HasSession`（pool+cache+token）、`&impl HasAuthCaps`（cache+token）、`&impl HasPool` / `HasBlob` 等窄边界（utoipa `routes!` 不支持泛型 handler）。组合根仍组装完整 `WebState`（双 bin 另议）。
 
 ## 项目概览
 

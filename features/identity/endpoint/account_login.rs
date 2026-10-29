@@ -3,7 +3,7 @@ use http_extractors::ValidJson;
 use identity_contract::IdentityError;
 use rootcause::Report;
 use web_error::{JsonResponseType, ProblemDetails, WebError};
-use web_state::{AppState, HasCache, HasPool, HasTokenHelper};
+use web_state::{AppState, HasSession};
 
 use crate::dto::{LoginRequest, TokenResponse};
 use crate::repository;
@@ -27,6 +27,10 @@ pub async fn handler(
     State(state): State<AppState>,
     ValidJson(request): ValidJson<LoginRequest>,
 ) -> JsonResponseType<TokenResponse> {
+    run(&state, request).await
+}
+
+async fn run(state: &impl HasSession, request: LoginRequest) -> JsonResponseType<TokenResponse> {
     let row = match repository::find_auth_by_phone(state.pool(), &request.phone()).await? {
         Some(row) => row,
         None => {
