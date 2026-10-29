@@ -52,4 +52,4 @@
 
 ## 架构守卫
 
-`cargo test -p server arch_test` 校验 Cargo 依赖方向（contract 不依赖 runtime/infra/utoipa/axum/sqlx/validify、kit 不依赖 feature/modrun/axum 等）。规则与 [conventions.md](conventions.md) 一致。
+`cargo test -p server arch_test` 校验 Cargo 依赖方向（contract 不依赖 runtime/infra/utoipa/axum/sqlx/validify、kit 不依赖 feature/modrun/axum 等），并核对生产 default 下 `shared_contract` 的 `cargo tree` golden（同 `just tree-server`）。规则与 [conventions.md](conventions.md) 一致。

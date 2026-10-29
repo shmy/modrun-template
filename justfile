@@ -12,11 +12,22 @@ dev:
 check:
     cargo check -p server --no-default-features --features {{dev_features}}
 
-# 生产 default（blob-cos + otlp）依赖图轻量快照，便于发现契约/infra 回潮
+# 生产 default（blob-cos + otlp）依赖图快照门禁；失败=契约/引用面回潮
+# 与 arch_test::server_shared_contract_tree_matches_golden 同源（经 arch_test 进 ai-check / pre_commit / CI）
 tree-server:
-    cargo tree -p server --edges normal -i shared_contract
-    @echo "---"
-    cargo tree -p server --edges normal --depth 1
+    @bash scripts/check-server-tree.sh
+
+# 有意变更依赖图后刷新 golden（须审 diff 再提交）
+tree-server-bless:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    normalize() { sed -E 's/ v[^ ]+//g; s/ \([^)]*\)//g'; }
+    cargo tree -p server --edges normal -i shared_contract --depth 1 --charset ascii \
+      | normalize > bin/server/testdata/shared_contract_invert_depth1.txt
+    cargo tree -p shared_contract --edges normal --depth 1 --charset ascii \
+      | normalize > bin/server/testdata/shared_contract_deps_depth1.txt
+    echo "blessed bin/server/testdata/shared_contract_*.txt"
+    just tree-server
 
 build:
     cargo build --package server --release --locked
@@ -82,7 +93,7 @@ ai-check crate: (lint crate)
       *" {{crate}} "*) extra="--features blob-fs" ;;
     esac
     echo "=== Architecture test ==="
-    cargo test -p server arch_test --quiet 2>&1 | tail -3
+    cargo test -p server arch_test --quiet 2>&1 | tail -5
     echo "=== Test {{crate}} ==="
     cargo test -p {{crate}} $extra --quiet 2>&1 | tail -10
     echo "--- Done ---"

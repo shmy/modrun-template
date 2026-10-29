@@ -15,7 +15,7 @@
 | `features/{name}/` | 端点、repository、域 FTL、OpenAPI DTO | 依赖其他 feature runtime |
 | `bin/server` | 组合根 | 业务逻辑 |
 
-`arch_test` 在 CI / `just pre_commit` 中强制执行上表（含 kit 禁 modrun/axum、contract 禁框架/DB）。
+`arch_test` 在 CI / `just pre_commit` / `just ai-check` 中强制执行上表（含 kit 禁 modrun/axum、contract 禁框架/DB）。另含生产 default 下 `shared_contract` 的 `cargo tree` golden（`just tree-server`）；失败=依赖图回潮，有意改动用 `just tree-server-bless`。
 
 ## Endpoint
 
@@ -45,4 +45,4 @@
 
 * 集成：`#[sqlx::test]` + `migration::run_migrations`（`cargo test -p identity --features blob-fs` 或 `just ai-check identity`）
 * E2E：`just e2e`（变量 `e2e/env.example`）
-* 架构：`cargo test -p server arch_test`
+* 架构：`cargo test -p server arch_test`（含 tree golden）；本地也可 `just tree-server`
