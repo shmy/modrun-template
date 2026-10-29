@@ -1,5 +1,6 @@
 /target
 /data
+.openidea
 .DS_Store
 .env
 e2e/env
