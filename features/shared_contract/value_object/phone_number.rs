@@ -4,13 +4,19 @@ use std::ops::Deref;
 use rootcause::Result;
 use serde::{Deserialize, Serialize};
 use std::result;
-use utoipa::ToSchema;
-use validify::ValidationErrors;
-use validify::{Modify, Validate};
 
-#[derive(Clone, Serialize, Deserialize, ToSchema, sqlx::Type)]
+#[derive(Debug, thiserror::Error)]
+pub enum PhoneNumberError {
+    #[error("phone_number_too_short")]
+    TooShort,
+    #[error("phone_number_too_long")]
+    TooLong,
+    #[error("phone_number_invalid_cn_mobile")]
+    InvalidCnMobile,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(transparent)]
-#[sqlx(transparent)]
 pub struct PhoneNumber(String);
 
 fn is_mainland_china_mobile(s: &str) -> bool {
@@ -26,10 +32,9 @@ fn is_mainland_china_mobile(s: &str) -> bool {
 
 impl PhoneNumber {
     pub fn try_new(phone_number: &str) -> Result<Self> {
-        let mut instance = Self(phone_number.to_owned());
-        instance.modify();
-        instance.validate()?;
-        Ok(instance)
+        let trimmed = phone_number.trim();
+        Self::validate_str(trimmed)?;
+        Ok(Self(trimmed.to_owned()))
     }
 
     /// 跳过校验直接包装（仅测试与已校验来源使用）。
@@ -40,51 +45,26 @@ impl PhoneNumber {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// 供 HTTP DTO 的 validify `custom` 校验复用；错误 Display 即 l10n key。
+    pub fn validate_str(s: &str) -> result::Result<(), PhoneNumberError> {
+        let len = s.len();
+        if len < 11 {
+            return Err(PhoneNumberError::TooShort);
+        }
+        if len > 11 {
+            return Err(PhoneNumberError::TooLong);
+        }
+        if !is_mainland_china_mobile(s) {
+            return Err(PhoneNumberError::InvalidCnMobile);
+        }
+        Ok(())
+    }
 }
 
 impl fmt::Debug for PhoneNumber {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("PhoneNumber").field(&"****").finish()
-    }
-}
-
-impl Modify for PhoneNumber {
-    fn modify(&mut self) {
-        self.0 = self.0.trim().to_string();
-    }
-}
-
-impl Validate for PhoneNumber {
-    fn validate(&self) -> result::Result<(), validify::ValidationErrors> {
-        let mut errors = ValidationErrors::new();
-        let s = self.0.as_str();
-        let len = s.len();
-        if len < 11 {
-            errors.add(validify::field_err!(
-                "too_short",
-                "phone_number_too_short",
-                "phone_number"
-            ));
-        }
-        if len > 11 {
-            errors.add(validify::field_err!(
-                "too_long",
-                "phone_number_too_long",
-                "phone_number"
-            ));
-        }
-        if len == 11 && !is_mainland_china_mobile(s) {
-            errors.add(validify::field_err!(
-                "invalid_cn_mobile",
-                "phone_number_invalid_cn_mobile",
-                "phone_number"
-            ));
-        }
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(errors)
-        }
     }
 }
 

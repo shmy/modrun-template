@@ -1,7 +1,7 @@
 use axum::{Json, extract::State};
 use http_extractors::ValidJson;
 use web_error::{JsonResponseType, ProblemDetails};
-use web_state::WebState;
+use web_state::{HasCache, HasTokenHelper, WebState};
 
 use crate::dto::{RefreshRequest, TokenResponse};
 use crate::shared::token_ops;
@@ -23,10 +23,13 @@ pub async fn handler(
     State(state): State<WebState>,
     ValidJson(request): ValidJson<RefreshRequest>,
 ) -> JsonResponseType<TokenResponse> {
-    let account_id =
-        token_ops::consume_refresh_token(&state.cache, &state.token_helper, &request.refresh_token)
-            .await?;
-    match token_ops::issue_tokens(&state.cache, &state.token_helper, &account_id).await {
+    let account_id = token_ops::consume_refresh_token(
+        state.cache(),
+        state.token_helper(),
+        &request.refresh_token,
+    )
+    .await?;
+    match token_ops::issue_tokens(state.cache(), state.token_helper(), &account_id).await {
         Ok(tokens) => Ok(Json(TokenResponse::bearer(
             tokens.access_token,
             tokens.refresh_token,
@@ -34,8 +37,8 @@ pub async fn handler(
         ))),
         Err(err) => {
             if let Err(restore_err) = token_ops::restore_refresh_token(
-                &state.cache,
-                &state.token_helper,
+                state.cache(),
+                state.token_helper(),
                 &request.refresh_token,
                 &account_id,
             )

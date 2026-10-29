@@ -14,8 +14,7 @@ workspace = true
 default = ["job-queue-pg"]
 job-queue-pg = ["job_queue_kit/pg"]
 job-queue-sqlite = ["job_queue_kit/sqlite"]
-# 由 server 的 blob-cos / blob-fs 或下游 `dev-blob` 打开；勿进 default。
-# 单独 `cargo check -p web_state`：加 `--features blob-fs`（或 blob-cos）；`just ai-check web_state` 已处理。
+# 由 server 的 blob-cos / blob-fs 或 just lint/ai-check 显式打开；勿进 default。
 blob-fs = ["blob_kit/fs"]
 blob-cos = ["blob_kit/cos"]
 

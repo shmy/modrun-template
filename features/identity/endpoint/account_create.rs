@@ -4,14 +4,16 @@ use axum::{Json, extract::State};
 use http_auth::AuthedAccount;
 use http_extractors::ValidJson;
 use serde::{Deserialize, Serialize};
-use shared_contract::{Id, PhoneNumber};
+use shared_contract::Id;
 use sqlx::PgPool;
 use utoipa::ToSchema;
 use validify::Validify;
 use web_error::{JsonResponseType, ProblemDetails};
-use web_state::WebState;
+use web_state::{HasPool, WebState};
 
+use crate::dto::validate_phone_number;
 use crate::repository;
+use shared_contract::PhoneNumber;
 
 #[derive(Debug, Deserialize, Validify, ToSchema)]
 pub struct CreateAccountRequest {
@@ -20,8 +22,10 @@ pub struct CreateAccountRequest {
     #[validate(length(max = 64, message = "account_name_too_long"))]
     #[schema(example = "Tom")]
     pub name: String,
-    #[validify]
-    pub phone: PhoneNumber,
+    #[modify(trim)]
+    #[validate(custom(validate_phone_number))]
+    #[schema(value_type = String, example = "13888888888")]
+    pub phone: String,
     #[schema(example = "P@ssw0rd1")]
     #[validify]
     pub password: Password,
@@ -29,6 +33,7 @@ pub struct CreateAccountRequest {
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct CreateAccountResponse {
+    #[schema(value_type = String)]
     pub id: Id,
     pub name: String,
 }
@@ -53,7 +58,7 @@ pub async fn handler(
     State(state): State<WebState>,
     ValidJson(request): ValidJson<CreateAccountRequest>,
 ) -> JsonResponseType<CreateAccountResponse> {
-    let response = execute(&state.pg, actor_id, request).await?;
+    let response = execute(state.pool(), actor_id, request).await?;
     Ok(Json(response))
 }
 
@@ -67,7 +72,7 @@ pub(crate) async fn execute(
     let account = Account {
         id,
         name: request.name,
-        phone: request.phone,
+        phone: PhoneNumber::new_unchecked(request.phone),
         password: HashedPassword::try_new(&request.password).await?,
         privileged: false,
         version: 1,
@@ -95,7 +100,7 @@ mod tests {
             actor,
             CreateAccountRequest {
                 name: "Tom".to_string(),
-                phone: PhoneNumber::try_new("13900001201").unwrap(),
+                phone: "13900001201".to_string(),
                 password: Password::new_unchecked("admin123!".to_string()),
             },
         )
@@ -114,7 +119,7 @@ mod tests {
             actor,
             CreateAccountRequest {
                 name: "Tom".to_string(),
-                phone: PhoneNumber::try_new("13900001211").unwrap(),
+                phone: "13900001211".to_string(),
                 password: Password::new_unchecked("admin123!".to_string()),
             },
         )
@@ -133,7 +138,7 @@ mod tests {
             actor,
             CreateAccountRequest {
                 name: "Tom".to_string(),
-                phone: PhoneNumber::try_new("13900001221").unwrap(),
+                phone: "13900001221".to_string(),
                 password: Password::new_unchecked("admin123!".to_string()),
             },
         )

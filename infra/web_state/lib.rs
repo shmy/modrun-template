@@ -9,6 +9,10 @@ use job_queue_kit::JobBus;
 use jwt_kit::{TokenHelper, TokenRealm};
 use modrun::Module;
 
+mod caps;
+
+pub use caps::{HasBlob, HasCache, HasJobs, HasPool, HasTokenHelper};
+
 // 兼容旧 import 路径；新代码优先直接依赖 `http_extractors`。
 pub use http_extractors::{ClientIp, ValidJson, ValidPath, ValidQuery, ValidTypedMultipart};
 
@@ -20,6 +24,36 @@ pub struct WebState {
     pub jobs: JobBus,
     pub token_helper: TokenHelper,
     pub trusted_proxies: TrustedProxies,
+}
+
+impl HasPool for WebState {
+    fn pool(&self) -> &PgPool {
+        &self.pg
+    }
+}
+
+impl HasCache for WebState {
+    fn cache(&self) -> &Cache {
+        &self.cache
+    }
+}
+
+impl HasBlob for WebState {
+    fn blob(&self) -> &Blob {
+        &self.blob
+    }
+}
+
+impl HasJobs for WebState {
+    fn jobs(&self) -> &JobBus {
+        &self.jobs
+    }
+}
+
+impl HasTokenHelper for WebState {
+    fn token_helper(&self) -> &TokenHelper {
+        &self.token_helper
+    }
 }
 
 impl HasTrustedProxies for WebState {

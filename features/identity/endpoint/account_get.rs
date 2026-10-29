@@ -4,7 +4,7 @@ use http_extractors::ValidPath;
 use shared_contract::Id;
 use sqlx::PgPool;
 use web_error::{JsonResponseType, ProblemDetails};
-use web_state::WebState;
+use web_state::{HasPool, WebState};
 
 use crate::dto::{AccountDetail, AccountIdPath};
 use crate::repository;
@@ -28,7 +28,7 @@ pub async fn handler(
     State(state): State<WebState>,
     ValidPath(path): ValidPath<AccountIdPath>,
 ) -> JsonResponseType<AccountDetail> {
-    let response = execute(&state.pg, actor_id, path).await?;
+    let response = execute(state.pool(), actor_id, path).await?;
     Ok(Json(response))
 }
 

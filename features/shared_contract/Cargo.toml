@@ -11,9 +11,9 @@ path = "lib.rs"
 workspace = true
 
 [dependencies]
+# 契约保持纯：仅 serde / 值对象依赖。utoipa / sqlx / validify / axum 禁止进入本 crate
+# （见 arch_test + AGENTS.md）。OpenAPI / 校验适配放使用方 DTO。
 rootcause = { workspace = true }
-serde = { workspace = true }
-sqlx = { workspace = true }
+serde = { workspace = true, features = ["std"] }
+thiserror = { workspace = true }
 tsid = { workspace = true }
-utoipa = { workspace = true }
-validify = { workspace = true }

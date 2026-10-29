@@ -8,8 +8,10 @@ publish = false
 path = "lib.rs"
 
 [features]
-default = ["dev-blob"]
-dev-blob = ["blob_kit/fs", "web_state/blob-fs"]
+# 无 default；单独 check/test 由 just 显式传 blob-fs
+default = []
+blob-fs = ["blob_kit/fs", "web_state/blob-fs"]
+blob-cos = ["blob_kit/cos", "web_state/blob-cos"]
 
 [dependencies]
 axum = { workspace = true }
@@ -19,6 +21,7 @@ file_contract = { workspace = true }
 http_extractors = { workspace = true }
 http_routing = { workspace = true }
 image_kit = { workspace = true }
+locale = { workspace = true }
 modrun = { workspace = true }
 rootcause = { workspace = true }
 serde = { workspace = true }

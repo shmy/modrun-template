@@ -1,12 +1,11 @@
 use serde::Serialize;
-use utoipa::ToSchema;
 
 use crate::Id;
 
-#[derive(Clone, Debug, Serialize, ToSchema)]
+#[derive(Clone, Debug, Serialize)]
 pub struct CursorPagingResult<T>
 where
-    T: Serialize + ToSchema,
+    T: Serialize,
 {
     pub items: Vec<T>,
     pub next_cursor: Option<Id>,

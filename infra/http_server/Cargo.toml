@@ -11,9 +11,10 @@ path = "lib.rs"
 workspace = true
 
 [features]
-# 单独 check 时激活 Blob；server 以 default-features = false 引入
-default = ["dev-blob"]
-dev-blob = ["web_state/blob-fs", "http_routing/dev-blob", "http_auth/dev-blob"]
+# 无 default；单独 check 由 just 显式传 blob-fs；server 以 default-features = false 引入
+default = []
+blob-fs = ["web_state/blob-fs", "http_routing/blob-fs", "http_auth/blob-fs"]
+blob-cos = ["web_state/blob-cos", "http_routing/blob-cos", "http_auth/blob-cos"]
 # 由 server feature `otlp` 开启；限流 metrics 经 http_routing/otel → trace_kit
 otel = [
     "dep:axum-tracing-opentelemetry",

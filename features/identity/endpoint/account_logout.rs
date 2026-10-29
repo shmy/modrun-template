@@ -1,7 +1,7 @@
 use axum::{Json, extract::State};
 use http_auth::AuthedAccount;
 use web_error::{JsonResponseType, ProblemDetails};
-use web_state::WebState;
+use web_state::{HasCache, HasTokenHelper, WebState};
 
 use crate::dto::LogoutResponse;
 use crate::shared::token_ops;
@@ -21,6 +21,6 @@ pub async fn handler(
     AuthedAccount(account_id): AuthedAccount,
     State(state): State<WebState>,
 ) -> JsonResponseType<LogoutResponse> {
-    token_ops::revoke_tokens(&state.cache, &state.token_helper, account_id).await?;
+    token_ops::revoke_tokens(state.cache(), state.token_helper(), account_id).await?;
     Ok(Json(LogoutResponse { logged_out: true }))
 }

@@ -131,17 +131,24 @@ infra/blob              注册 blob_kit::Blob（feature 选 cos / fs）
 infra/job_queue         注册 job_queue_kit::JobBus + JobHandlers 登记
 infra/scheduler         cron 注册表 + MASTER 门控
 infra/http_auth         Bearer 鉴权 + AuthedAccount 提取器
-infra/web_state         WebState { pg, cache, blob, jobs, token_helper, ... } + 各提取器
-infra/web_error         WebError、JsonResponseType、register_domain_mapper、RFC 9457
-infra/locale            Fluent i18n（shared / identity / file 按域分 ftl）+ l10n 中间件
+infra/web_state         WebState + HasPool/HasBlob/… 能力 trait；re-export 提取器
+infra/web_error         WebError、JsonResponseType、register_domain_mapper、RFC 9457（状态码按命名约定）
+infra/locale            Fluent i18n（仅 shared.ftl；域 FTL 由 feature `register_ftl`）+ l10n 中间件
 infra/http_server       合并 PublicRouter / ProtectedRouter、OpenAPI、Scalar、axum-governor 全局限流
 features/health         健康检查
-features/shared_contract    跨域值对象（Id、PhoneNumber）与游标分页
-features/identity_contract  identity 域实体与错误（L10nKeyedError）
-features/identity         登录 / 账号 CRUD / 改密
+features/shared_contract    纯跨域值对象（Id、PhoneNumber）与游标分页（无 utoipa/sqlx）
+features/identity_contract  identity 域错误（L10nKeyedError）；读模型待跨域下沉
+features/identity         登录 / 账号 CRUD / 改密 + locales 自注册
 features/file_contract    file 域契约（格式检测、staging 路径）
-features/file             图片上传端点
+features/file             图片上传端点 + locales 自注册
 ```
+
+## 增量编译友好
+
+* AI / 日常迭代：只用 `just lint <crate>` / `just ai-check <crate>`（显式 `blob-fs`），**不要**默认 `--all-features` / `--workspace`。
+* `just check` 对齐开发 feature；`cargo check -p server` 对齐生产 default；提交前再 `just pre_commit`。
+* 契约 crate 保持纯值对象；OpenAPI / validify 适配放使用方 DTO。详见 [AGENTS.md](AGENTS.md)。
+
 
 ## modrun 约定
 

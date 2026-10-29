@@ -1184,6 +1184,7 @@ dependencies = [
  "http_routing",
  "image",
  "image_kit",
+ "locale",
  "modrun",
  "rootcause",
  "serde",
@@ -1969,6 +1970,7 @@ dependencies = [
  "http_routing",
  "identity_contract",
  "jwt_kit",
+ "locale",
  "migration",
  "modrun",
  "rootcause",
@@ -4018,10 +4020,8 @@ version = "0.1.0"
 dependencies = [
  "rootcause",
  "serde",
- "sqlx",
+ "thiserror 2.0.21",
  "tsid",
- "utoipa",
- "validify",
 ]
 
 [[package]]

@@ -4,7 +4,7 @@ use std::time::Instant;
 use axum::{Json, extract::State};
 use serde::Serialize;
 use utoipa::ToSchema;
-use web_state::WebState;
+use web_state::{HasPool, WebState};
 
 static PROCESS_START: LazyLock<Instant> = LazyLock::new(Instant::now);
 
@@ -35,16 +35,17 @@ pub struct HealthzResponse {
     responses((status = 200, body = HealthzResponse)),
 )]
 pub async fn handler(State(state): State<WebState>) -> Json<HealthzResponse> {
-    let options = state.pg.options();
+    let pool = state.pool();
+    let options = pool.options();
     Json(HealthzResponse {
         process: HealthzProcess {
             uptime_seconds: PROCESS_START.elapsed().as_secs(),
         },
         postgres: HealthzPostgres {
-            size: state.pg.size(),
-            idle: state.pg.num_idle() as u32,
+            size: pool.size(),
+            idle: pool.num_idle() as u32,
             max_connections: options.get_max_connections(),
-            is_closed: state.pg.is_closed(),
+            is_closed: pool.is_closed(),
         },
     })
 }

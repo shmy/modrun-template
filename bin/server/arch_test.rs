@@ -184,6 +184,38 @@ fn contract_crates_should_not_depend_on_infra() {
 }
 
 #[test]
+fn contract_crates_should_not_depend_on_framework_or_db() {
+    // 契约保持纯：OpenAPI / HTTP / DB 适配放使用方 DTO 或独立适配层，勿硬依赖。
+    // （即使 optional/feature-gate 也不要写进 contract 的 [dependencies]。）
+    let forbidden = ["utoipa", "axum", "sqlx", "validify"];
+    for (contract, deps) in contract_crates() {
+        let violations: Vec<_> = forbidden
+            .iter()
+            .filter(|name| deps.contains(**name))
+            .collect();
+        assert!(
+            violations.is_empty(),
+            "contract `{contract}` must not depend on {violations:?}; keep values pure + serde"
+        );
+    }
+}
+
+#[test]
+fn kit_crates_should_not_depend_on_modrun_or_axum() {
+    let forbidden = ["modrun", "axum"];
+    for (name, deps) in kit_crates() {
+        let violations: Vec<_> = forbidden
+            .iter()
+            .filter(|dep| deps.contains(**dep))
+            .collect();
+        assert!(
+            violations.is_empty(),
+            "crates/`{name}` must not depend on {violations:?} (framework-agnostic kits only)"
+        );
+    }
+}
+
+#[test]
 fn infra_crates_should_not_depend_on_feature_runtime_crates() {
     let runtime_names: HashSet<String> = feature_runtime_crates()
         .into_iter()

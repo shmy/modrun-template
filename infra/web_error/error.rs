@@ -145,21 +145,31 @@ impl WebError {
     }
 }
 
+/// 按命名约定映射状态码；域无需再维护 `account_*` 白名单。
+/// 约定（先匹配更具体的后缀/前缀）：
+/// - `access_token_*` / `authed_account_not_found` / `*_invalid_credentials` / `*_token_invalid` → 401
+/// - `*_forbidden` / `*_protected` → 403
+/// - `*_not_found` → 404
+/// - `*_duplicated` / `*_version_conflict` → 409
+/// - 其余业务 key → 400；基础设施固定 key 见 match 臂
 fn l10n_status_code(key: &str) -> StatusCode {
     match key {
         "request_timeout" => StatusCode::REQUEST_TIMEOUT,
         "internal_server_error" => StatusCode::INTERNAL_SERVER_ERROR,
         "rate_limited" => StatusCode::TOO_MANY_REQUESTS,
         "cache_unavailable" => StatusCode::SERVICE_UNAVAILABLE,
-        "account_not_found" => StatusCode::NOT_FOUND,
-        "account_protected" => StatusCode::FORBIDDEN,
-        "account_duplicated" => StatusCode::CONFLICT,
-        "account_invalid_credentials" | "refresh_token_invalid" => StatusCode::UNAUTHORIZED,
+        // 鉴权：须在通用 `*_not_found` 之前（authed_account_not_found 语义是未认证而非资源缺失）
         key if key.starts_with("access_token_") || key == "authed_account_not_found" => {
             StatusCode::UNAUTHORIZED
         }
-        key if key.ends_with("_forbidden") => StatusCode::FORBIDDEN,
-        key if key.ends_with("_version_conflict") => StatusCode::CONFLICT,
+        key if key.ends_with("_invalid_credentials") || key.ends_with("_token_invalid") => {
+            StatusCode::UNAUTHORIZED
+        }
+        key if key.ends_with("_forbidden") || key.ends_with("_protected") => StatusCode::FORBIDDEN,
+        key if key.ends_with("_not_found") => StatusCode::NOT_FOUND,
+        key if key.ends_with("_duplicated") || key.ends_with("_version_conflict") => {
+            StatusCode::CONFLICT
+        }
         _ => StatusCode::BAD_REQUEST,
     }
 }

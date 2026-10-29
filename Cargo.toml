@@ -36,8 +36,7 @@ resolver = "3"
 [workspace.dependencies]
 # 默认仅 console；OTLP/metrics 由 server feature `otlp`（及 identity/http_server）开启
 trace_kit = { path = "crates/trace_kit", default-features = false, features = ["console"] }
-# 下列带 default-features = false：避免被依赖时自动打开 `dev-blob`（会把 fs 带进 blob-cos 图）
-# 单独 `cargo check -p <crate>` 仍使用该 crate 自己的 default（含 dev-blob）
+# 下列带 default-features = false：成员 crate 已无 default blob；单独 check 由 just lint/ai-check 显式传 blob-fs
 health = { path = "features/health", default-features = false }
 identity = { path = "features/identity", default-features = false }
 identity_contract = { path = "features/identity_contract" }

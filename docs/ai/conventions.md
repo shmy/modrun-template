@@ -10,25 +10,28 @@
 |------|------|------|
 | `crates/` | 通用 `*_kit` | modrun、axum、业务实体 |
 | `infra/` | 运行时接线 | 业务域逻辑 |
-| `features/{name}_contract/` | 跨域错误/读模型（勿放 argon2/utoipa/runtime） | 依赖其他 contract（除 `shared_contract`）、infra、runtime |
-| `features/{name}/` | 端点、repository | 依赖其他 feature runtime |
+| `features/{name}_contract/` | 跨域错误/读模型（纯 serde/thiserror） | utoipa/axum/sqlx/validify、其他 contract（除 `shared_contract`）、infra、runtime |
+| `features/shared_contract/` | 跨域值对象 + 游标分页（纯） | 同上 |
+| `features/{name}/` | 端点、repository、域 FTL、OpenAPI DTO | 依赖其他 feature runtime |
 | `bin/server` | 组合根 | 业务逻辑 |
 
-`arch_test` 在 CI / `just pre_commit` 中强制执行上表。
+`arch_test` 在 CI / `just pre_commit` 中强制执行上表（含 kit 禁 modrun/axum、contract 禁框架/DB）。
 
 ## Endpoint
 
 * 单文件 `features/{domain}/endpoint/{entity}_{action}.rs`：DTO + `#[utoipa::path]` + `handler`（+ `execute` 若有副作用）
 * handler 返回 `JsonResponseType<T>`；健康探针返回裸 `Json`
+* `State` 通过 `HasPool` / `HasCache` / `HasBlob` / `HasTokenHelper` 等取能力，避免整包字段耦合
 * 含副作用（`revoke_tokens` 等）必须在 `execute`，handler 不重复逻辑
+* 契约类型无 `ToSchema` 时：字段上 `#[schema(value_type = …)]`，或本地 OpenAPI 壳类型
 
 ## 错误与 i18n
 
 * 领域错误 `thiserror` + `#[error("snake_case_key")]`
-* key 须在 `infra/locale/locales/{en-US,zh-CN}/` 有翻译；identity 相关放 `identity.ftl`，HTTP/校验通用放 `shared.ftl`
+* 通用 key → `infra/locale/locales/*/shared.ftl`；域 key → `features/{domain}/locales/*/{domain}.ftl` + `locale::register_ftl`
 * **禁止**同一 key 出现在多个 ftl（Fluent bundle 重复会 panic）
 * 域错误实现 `L10nKeyedError` 并在 `module()` 注册 mapper
-* 状态码映射见 `infra/web_error` 的 `l10n_status_code`：`access_token_*` / `account_invalid_credentials` / `refresh_token_invalid` → 401；`*_forbidden` / `account_protected` → 403；`account_not_found` → 404；`account_duplicated` / `*_version_conflict` → 409；`rate_limited` → 429；其余 400。新增业务错误请遵循命名约定（使前缀/后缀映射生效），或显式补映射
+* 状态码：命名约定（`*_not_found`→404、`*_forbidden`/`*_protected`→403、`*_duplicated`/`*_version_conflict`→409、`*_invalid_credentials`/`*_token_invalid`/`access_token_*`→401）；勿在 `web_error` 加域特例白名单
 
 ## 依赖变更
 
@@ -40,6 +43,6 @@
 
 ## 测试
 
-* 集成：`#[sqlx::test]` + `migration::run_migrations`
+* 集成：`#[sqlx::test]` + `migration::run_migrations`（`cargo test -p identity --features blob-fs` 或 `just ai-check identity`）
 * E2E：`just e2e`（变量 `e2e/env.example`）
 * 架构：`cargo test -p server arch_test`

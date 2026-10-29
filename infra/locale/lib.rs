@@ -9,9 +9,14 @@
 )]
 
 use fluent_bundle::FluentArgs;
+use std::sync::MutexGuard;
+use std::sync::Once;
 pub mod middleware;
 
-use std::{collections::HashMap, sync::LazyLock};
+use std::{
+    collections::HashMap,
+    sync::{Mutex, OnceLock},
+};
 
 use fluent_bundle::{FluentResource, concurrent::FluentBundle as ConcurrentFluentBundle};
 use unic_langid::LanguageIdentifier;
@@ -20,34 +25,56 @@ pub const DEFAULT_LOCALE: &str = "en-US";
 
 type Bundle = ConcurrentFluentBundle<FluentResource>;
 
-static BUNDLES: LazyLock<HashMap<String, Bundle>> = LazyLock::new(|| {
-    let mut map = HashMap::new();
-    register(
-        &mut map,
-        "en-US",
-        &[
-            include_str!("locales/en-US/shared.ftl"),
-            include_str!("locales/en-US/identity.ftl"),
-            include_str!("locales/en-US/file.ftl"),
-        ],
+/// 域通过 `register_ftl` 贡献的 FTL 片段（locale → 多段源码）。
+static FTL_REGISTRY: Mutex<Vec<(&'static str, &'static str)>> = Mutex::new(Vec::new());
+static BUNDLES: OnceLock<HashMap<String, Bundle>> = OnceLock::new();
+
+fn registry_lock() -> MutexGuard<'static, Vec<(&'static str, &'static str)>> {
+    FTL_REGISTRY
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// 注册一段 Fluent 资源。feature 在 `module()` 时调用；须在首次 `translate` 前完成。
+pub fn register_ftl(locale: &'static str, ftl: &'static str) {
+    assert!(
+        BUNDLES.get().is_none(),
+        "register_ftl after bundles sealed (too late)"
     );
-    register(
-        &mut map,
-        "zh-CN",
-        &[
-            include_str!("locales/zh-CN/shared.ftl"),
-            include_str!("locales/zh-CN/identity.ftl"),
-            include_str!("locales/zh-CN/file.ftl"),
-        ],
-    );
-    map
-});
+    registry_lock().push((locale, ftl));
+}
+
+fn ensure_shared_registered() {
+    // shared.ftl 始终由 locale crate 提供；幂等：仅在 registry 尚无 shared 标记时插入。
+    // 用一次静态 flag 避免重复 add 同内容（Fluent 重复 key 会 fail）。
+    static SHARED_DONE: Once = Once::new();
+    SHARED_DONE.call_once(|| {
+        registry_lock().push(("en-US", include_str!("locales/en-US/shared.ftl")));
+        registry_lock().push(("zh-CN", include_str!("locales/zh-CN/shared.ftl")));
+    });
+}
+
+fn bundles() -> &'static HashMap<String, Bundle> {
+    BUNDLES.get_or_init(|| {
+        ensure_shared_registered();
+        let entries = registry_lock().clone();
+        let mut by_locale: HashMap<String, Vec<&'static str>> = HashMap::new();
+        for (locale, ftl) in entries {
+            by_locale.entry(locale.to_string()).or_default().push(ftl);
+        }
+        let mut map = HashMap::new();
+        for (locale, ftls) in by_locale {
+            register_locale(&mut map, &locale, &ftls);
+        }
+        map
+    })
+}
 
 #[allow(
     clippy::expect_used,
     reason = "locale registration is infallible with pre-validated inputs"
 )]
-fn register(map: &mut HashMap<String, Bundle>, locale: &str, ftls: &[&str]) {
+fn register_locale(map: &mut HashMap<String, Bundle>, locale: &str, ftls: &[&str]) {
     let langid: LanguageIdentifier = locale.parse().expect("invalid locale identifier");
     let mut bundle = ConcurrentFluentBundle::new_concurrent(vec![langid]);
     for ftl in ftls {
@@ -99,7 +126,7 @@ fn try_translate_with_args(
     key: &str,
     args: &fluent_bundle::FluentArgs,
 ) -> Option<String> {
-    let bundle = BUNDLES.get(locale)?;
+    let bundle = bundles().get(locale)?;
     let msg = bundle.get_message(key)?;
     let pattern = msg.value()?;
     let mut errors = vec![];
@@ -119,9 +146,34 @@ mod tests {
     use std::collections::HashSet;
     use std::fs;
     use std::path::Path;
+    use std::sync::Once;
+
+    fn seal_with_domain_ftls_for_tests() {
+        // 测试不经 modrun module()；在此补注册域 FTL，模拟 feature 自注册。
+        static ONCE: Once = Once::new();
+        ONCE.call_once(|| {
+            register_ftl(
+                "en-US",
+                include_str!("../../features/identity/locales/en-US/identity.ftl"),
+            );
+            register_ftl(
+                "zh-CN",
+                include_str!("../../features/identity/locales/zh-CN/identity.ftl"),
+            );
+            register_ftl(
+                "en-US",
+                include_str!("../../features/file/locales/en-US/file.ftl"),
+            );
+            register_ftl(
+                "zh-CN",
+                include_str!("../../features/file/locales/zh-CN/file.ftl"),
+            );
+        });
+    }
 
     #[test]
     fn test_translate_known_key_zh() {
+        seal_with_domain_ftls_for_tests();
         assert_eq!(
             translate("zh-CN", "internal_server_error"),
             "服务器内部错误"
@@ -130,6 +182,7 @@ mod tests {
 
     #[test]
     fn test_translate_with_args_interpolates_field() {
+        seal_with_domain_ftls_for_tests();
         let args = [("field", "phone".to_string())];
         assert_eq!(
             translate_with_args("zh-CN", "json_body_missing_field", &args),
@@ -147,6 +200,7 @@ mod tests {
 
     #[test]
     fn test_translate_known_key_en() {
+        seal_with_domain_ftls_for_tests();
         assert_eq!(
             translate("en-US", "internal_server_error"),
             "Internal server error"
@@ -155,23 +209,27 @@ mod tests {
 
     #[test]
     fn test_translate_fallback_to_default() {
+        seal_with_domain_ftls_for_tests();
         let result = translate("ja", "internal_server_error");
         assert_eq!(result, "Internal server error");
     }
 
     #[test]
     fn test_translate_unknown_key() {
+        seal_with_domain_ftls_for_tests();
         let result = translate("en-US", "no_such_key");
         assert_eq!(result, "no_such_key");
     }
 
     #[test]
     fn test_translate_phone_number_too_short() {
+        seal_with_domain_ftls_for_tests();
         assert_eq!(translate("zh-CN", "phone_number_too_short"), "手机号码过短");
     }
 
     #[test]
     fn test_translate_phone_number_invalid_cn_mobile() {
+        seal_with_domain_ftls_for_tests();
         assert_eq!(
             translate("zh-CN", "phone_number_invalid_cn_mobile"),
             "请输入有效的11位中国大陆手机号码"
@@ -184,6 +242,7 @@ mod tests {
 
     #[test]
     fn test_all_l10n_keys_used_in_code_exist_in_bundles() {
+        seal_with_domain_ftls_for_tests();
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..");
         let thiserror_re =
             Regex::new(r#"#\[error\("([^"]*)"\)\]"#).expect("compile thiserror regex");

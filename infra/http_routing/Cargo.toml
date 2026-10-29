@@ -11,9 +11,10 @@ path = "lib.rs"
 workspace = true
 
 [features]
-default = ["dev-blob"]
-# 单独 check 本 crate 时激活 Blob；server 图由 blob-cos/blob-fs 注入
-dev-blob = ["web_state/blob-fs"]
+default = []
+# 单独 check 本 crate 时由 just 显式传；server 图由 blob-cos/blob-fs 注入
+blob-fs = ["web_state/blob-fs"]
+blob-cos = ["web_state/blob-cos"]
 # 由 server/http_server 的 otlp/otel 开启，限流命中时记 metrics
 otel = ["dep:trace_kit", "trace_kit/otlp"]
 

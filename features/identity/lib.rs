@@ -30,6 +30,7 @@ pub(crate) mod tests;
 
 pub fn module() -> Module {
     shared::domain_error::register_identity_domain_mapper();
+    shared::l10n::register_identity_locales();
     Module::builder("identity")
         .invoke(register)
         .provide_group(public_routes)

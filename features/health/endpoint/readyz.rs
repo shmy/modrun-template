@@ -1,7 +1,7 @@
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 use serde::Serialize;
 use utoipa::ToSchema;
-use web_state::WebState;
+use web_state::{HasPool, WebState};
 
 #[derive(Serialize, ToSchema)]
 pub struct ReadyzResponse {
@@ -11,7 +11,7 @@ pub struct ReadyzResponse {
 }
 
 async fn check_db(state: &WebState) -> Result<(), &'static str> {
-    let mut conn = state.pg.acquire().await.map_err(|_| "postgres_pool")?;
+    let mut conn = state.pool().acquire().await.map_err(|_| "postgres_pool")?;
     sqlx::query_scalar!(r#"SELECT 1 as "one!""#)
         .fetch_one(&mut *conn)
         .await

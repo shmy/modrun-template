@@ -7,10 +7,8 @@ use serde::{
 use std::num::ParseIntError;
 use std::result::Result;
 use tsid::create_tsid;
-use utoipa::ToSchema;
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, ToSchema, sqlx::Type)]
-#[sqlx(transparent)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct Id(i64);
 
 impl Id {

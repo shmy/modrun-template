@@ -3,7 +3,7 @@ use http_extractors::ValidJson;
 use identity_contract::IdentityError;
 use rootcause::Report;
 use web_error::{JsonResponseType, ProblemDetails, WebError};
-use web_state::WebState;
+use web_state::{HasCache, HasPool, HasTokenHelper, WebState};
 
 use crate::dto::{LoginRequest, TokenResponse};
 use crate::repository;
@@ -27,7 +27,7 @@ pub async fn handler(
     State(state): State<WebState>,
     ValidJson(request): ValidJson<LoginRequest>,
 ) -> JsonResponseType<TokenResponse> {
-    let row = match repository::find_auth_by_phone(&state.pg, &request.phone).await? {
+    let row = match repository::find_auth_by_phone(state.pool(), &request.phone()).await? {
         Some(row) => row,
         None => {
             // 时序一致性：执行等价 argon2，防止通过响应时间差异枚举有效手机号
@@ -46,7 +46,7 @@ pub async fn handler(
         return Err(WebError::from(err));
     }
 
-    let tokens = token_ops::issue_tokens(&state.cache, &state.token_helper, &row.id).await?;
+    let tokens = token_ops::issue_tokens(state.cache(), state.token_helper(), &row.id).await?;
     #[cfg(feature = "otel")]
     trace_kit::metrics::record_login(true);
 

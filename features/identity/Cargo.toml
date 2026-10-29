@@ -11,11 +11,13 @@ path = "lib.rs"
 workspace = true
 
 [features]
-# 单独 `cargo check/test -p identity` 时激活 Blob 变体；server 以 default-features = false 引入
-default = ["dev-blob"]
-dev-blob = ["web_state/blob-fs"]
+# 无 default：单独 check/test 由 just lint/ai-check 显式传 `--features blob-fs`
+# （web_state 的 Blob 需要 fs 或 cos；server 经 workspace default-features=false 引入）
+default = []
 # 由 server feature `otlp` 开启；单独测 identity 可不带 metrics
 otel = ["dep:trace_kit", "trace_kit/otlp"]
+blob-fs = ["web_state/blob-fs"]
+blob-cos = ["web_state/blob-cos"]
 
 [dependencies]
 argon2 = { workspace = true }
@@ -28,6 +30,7 @@ http_routing = { workspace = true }
 identity_contract = { workspace = true }
 jwt_kit = { workspace = true }
 cache_kit = { workspace = true }
+locale = { workspace = true }
 modrun = { workspace = true }
 rootcause = { workspace = true }
 serde = { workspace = true }

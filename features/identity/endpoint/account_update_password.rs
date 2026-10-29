@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use validify::Validify;
 use web_error::{JsonResponseType, ProblemDetails};
-use web_state::WebState;
+use web_state::{HasCache, HasPool, HasTokenHelper, WebState};
 
 use crate::repository;
 use crate::shared::token_ops;
@@ -51,9 +51,9 @@ pub async fn handler(
     ValidJson(request): ValidJson<UpdatePasswordRequest>,
 ) -> JsonResponseType<UpdatePasswordResponse> {
     let response = execute(
-        &state.pg,
-        &state.cache,
-        &state.token_helper,
+        state.pool(),
+        state.cache(),
+        state.token_helper(),
         account_id,
         request,
     )

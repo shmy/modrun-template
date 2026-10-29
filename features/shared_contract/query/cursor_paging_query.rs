@@ -1,10 +1,8 @@
 use serde::Deserialize;
-use utoipa::{IntoParams, ToSchema};
 
 use crate::Id;
 
-#[derive(Debug, Default, Deserialize, ToSchema, IntoParams)]
-#[into_params(parameter_in = Query)]
+#[derive(Debug, Default, Deserialize)]
 pub struct CursorPagingQuery {
     #[serde(default)]
     pub cursor: Option<Id>,

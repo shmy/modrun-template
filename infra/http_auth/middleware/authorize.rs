@@ -8,7 +8,7 @@ use cache_kit::Cache;
 use jwt_kit::TokenHelper;
 use shared_contract::Id;
 use web_error::WebError;
-use web_state::WebState;
+use web_state::{HasCache, HasTokenHelper, WebState};
 
 use crate::extractor::AuthedAccount;
 use axum::extract::State;
@@ -66,8 +66,8 @@ async fn authenticate_account(
 ) -> Result<Response, WebError> {
     let token = access_token_from_headers(request.headers()).map_err(auth_error_to_web_error)?;
     let verifier = AuthVerifier {
-        token_helper: &state.token_helper,
-        cache: &state.cache,
+        token_helper: state.token_helper(),
+        cache: state.cache(),
     };
     let verified = verifier
         .verify(&token)

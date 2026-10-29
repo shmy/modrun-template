@@ -24,6 +24,7 @@ const FILE_UPLOAD_BODY_LIMIT: usize = 3 * 1024 * 1024;
 
 pub fn module() -> Module {
     shared::domain_error::register_file_domain_mapper();
+    shared::l10n::register_file_locales();
     Module::builder("file").provide_group(protected_routes)
 }
 

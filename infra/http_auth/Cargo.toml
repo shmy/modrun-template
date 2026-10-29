@@ -11,8 +11,9 @@ path = "lib.rs"
 workspace = true
 
 [features]
-default = ["dev-blob"]
-dev-blob = ["web_state/blob-fs"]
+default = []
+blob-fs = ["web_state/blob-fs"]
+blob-cos = ["web_state/blob-cos"]
 
 [dependencies]
 authn_kit = { workspace = true }

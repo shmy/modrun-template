@@ -8,9 +8,9 @@ use sqlx::PgPool;
 use utoipa::IntoParams;
 use validify::Validify;
 use web_error::{JsonResponseType, ProblemDetails};
-use web_state::WebState;
+use web_state::{HasPool, WebState};
 
-use crate::dto::AccountPublic;
+use crate::dto::{AccountPublic, AccountSearchResponse};
 use crate::repository;
 
 /// 搜索关键字 3–64 字符；过短无法有效利用 pg_trgm，过长拖垮 ILIKE。
@@ -34,12 +34,24 @@ fn prepare_search_q(q: Option<String>) -> rootcause::Result<Option<String>> {
 #[derive(Debug, Deserialize, Validify, IntoParams)]
 #[into_params(parameter_in = Query)]
 pub struct SearchAccountQuery {
-    #[serde(flatten)]
-    #[param(inline)]
-    pub paging: CursorPagingQuery,
+    /// 游标（正整数 Id 字符串）；契约层无 IntoParams，字段在此展开。
+    #[serde(default)]
+    #[param(value_type = Option<String>)]
+    pub cursor: Option<Id>,
+    #[serde(default)]
+    pub limit: Option<i64>,
     #[param(example = "test")]
     #[serde(default)]
     pub q: Option<String>,
+}
+
+impl SearchAccountQuery {
+    fn paging(&self) -> CursorPagingQuery {
+        CursorPagingQuery {
+            cursor: self.cursor,
+            limit: self.limit,
+        }
+    }
 }
 
 #[utoipa::path(
@@ -49,7 +61,7 @@ pub struct SearchAccountQuery {
     tag = "account",
     params(SearchAccountQuery),
     responses(
-        (status = 200, body = CursorPagingResult<AccountPublic>),
+        (status = 200, body = AccountSearchResponse),
         (status = 400, description = "查询参数无效", body = ProblemDetails),
         (status = 401, description = "未认证", body = ProblemDetails),
         (status = 403, description = "调用方不是特权账号", body = ProblemDetails)
@@ -61,7 +73,7 @@ pub async fn handler(
     State(state): State<WebState>,
     ValidQuery(query): ValidQuery<SearchAccountQuery>,
 ) -> JsonResponseType<CursorPagingResult<AccountPublic>> {
-    let response = execute(&state.pg, actor_id, query).await?;
+    let response = execute(state.pool(), actor_id, query).await?;
     Ok(Json(response))
 }
 
@@ -71,8 +83,9 @@ pub(crate) async fn execute(
     query: SearchAccountQuery,
 ) -> rootcause::Result<CursorPagingResult<AccountPublic>> {
     repository::require_privileged(pool, actor_id).await?;
+    let paging = query.paging();
     let q = prepare_search_q(query.q)?;
-    let (items, next_cursor) = repository::search(pool, &query.paging, q.as_deref()).await?;
+    let (items, next_cursor) = repository::search(pool, &paging, q.as_deref()).await?;
     Ok(CursorPagingResult {
         items: items.into_iter().map(AccountPublic::from).collect(),
         next_cursor,
