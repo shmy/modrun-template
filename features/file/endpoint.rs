@@ -1,1 +1,2 @@
-pub(crate) mod file_upload_image;
+pub mod file_serve_static;
+pub mod file_upload_image;

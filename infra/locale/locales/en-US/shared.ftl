@@ -1,5 +1,6 @@
 internal_server_error = Internal server error
 request_timeout = Request timed out
+request_cancelled = Request was cancelled
 rate_limited = Too many requests, please try again later
 cache_unavailable = Service temporarily unavailable, please try again later
 access_token_missing = Authorization token is required
@@ -7,6 +8,7 @@ access_token_invalid = Access token is invalid
 access_token_revoked = Access token has been revoked
 authed_account_not_found = Authenticated account not found
 invalid_request = Invalid request
+payload_too_large = Request body is too large
 invalid_request_body = Invalid request body
 json_body_syntax = Request body is not valid JSON
 json_body_missing_field = Missing required field: { $field }

@@ -95,6 +95,11 @@ impl TestBlob {
     }
 
     #[tracing::instrument]
+    pub async fn read(&self, path: &str) -> Result<Option<Vec<u8>>> {
+        Ok(self.core.read(path).await?.map(|out| out.bytes))
+    }
+
+    #[tracing::instrument]
     pub async fn presign_video_upload_url(
         &self,
         _path: impl AsRef<str> + Debug,

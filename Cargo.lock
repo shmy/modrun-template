@@ -1668,7 +1668,6 @@ dependencies = [
  "axum_typed_multipart",
  "config",
  "form_urlencoded",
- "real",
  "serde",
  "serde_json",
  "serde_path_to_error",
@@ -1704,12 +1703,15 @@ dependencies = [
  "http_routing",
  "locale",
  "modrun",
+ "serde_json",
  "tokio",
+ "tower",
  "tower-http 0.7.1",
  "tracing",
  "utoipa",
  "utoipa-axum",
  "utoipa-scalar",
+ "web_error",
  "web_state",
 ]
 
@@ -2259,7 +2261,6 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "futures-util",
- "opentelemetry",
  "rootcause",
  "serde",
  "serde_json",
@@ -3329,15 +3330,6 @@ name = "rand_core"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
-
-[[package]]
-name = "real"
-version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75514ac76a7c35f48f704ba5bf8a26b68a63f678b9af44726447a0347eb54068"
-dependencies = [
- "thiserror 1.0.69",
-]
 
 [[package]]
 name = "redb"

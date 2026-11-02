@@ -1,5 +1,6 @@
 internal_server_error = 服务器内部错误
 request_timeout = 请求超时
+request_cancelled = 请求已取消
 rate_limited = 请求过于频繁，请稍后再试
 cache_unavailable = 服务暂时不可用，请稍后再试
 access_token_missing = 需要授权令牌
@@ -7,6 +8,7 @@ access_token_invalid = 访问令牌无效
 access_token_revoked = 访问令牌已被撤销
 authed_account_not_found = 当前认证账号不存在
 invalid_request = 无效请求
+payload_too_large = 请求体过大
 invalid_request_body = 请求体格式错误
 json_body_syntax = 请求体不是合法的 JSON
 json_body_missing_field = 缺少必填字段：{ $field }

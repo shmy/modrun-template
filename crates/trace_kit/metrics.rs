@@ -36,6 +36,7 @@ pub fn record_rate_limited() {
     RATE_LIMITED.add(1, &[]);
 }
 
+/// 记录一次 job 终态失败。由组合根在 job 失败处调用（`job_queue_kit` 不依赖 OTel）。
 pub fn record_job_failed(job_type: &str) {
     JOB_FAILED.add(1, &[KeyValue::new("job_type", job_type.to_string())]);
 }

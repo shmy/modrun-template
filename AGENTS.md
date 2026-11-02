@@ -76,6 +76,7 @@ just e2e                     # Hurl 端到端（服务需已启动）
 | `blob-cos` | 可用 | `blob-fs` 为本机路径，多副本不共享 |
 | `MASTER` | 仅一台 `true` | 只有 master 跑 `scheduler.run` 与 admin seed；副本设 `MASTER=false` |
 | 限流（governor） | 进程内 | 多副本配额相加，非集群配额；生产建议 Ingress / 边缘限流 |
+| **TSID 节点号** | **必须互不相同** | 主键由 tsid 生成；未设 `TSID_NODE_ID` 时每进程随机取 node，多副本可能撞号导致 INSERT 主键冲突。每实例分配唯一值（`0..N-1`） |
 
 容量：实例数 × `DATABASE_MAX_CONNECTIONS` ≤ PostgreSQL `max_connections`（预留管理连接）。生产先 `just sqlx_up`（或 `migrator`）再滚动发布 server。
 
@@ -117,8 +118,8 @@ just e2e                     # Hurl 端到端（服务需已启动）
 * `JWT_SECRET` 必填且 ≥32 字节；`APP_ENV=production` 时关闭 Scalar UI，且拒绝默认 `SEED_ADMIN_PASSWORD`
 * `OTLP_ENDPOINT` 为空则关闭 OTLP 导出；`OTLP_SAMPLER_RATIO` 默认 `0.1`（`(0,1]`）
 * `CORS_ORIGINS` 空则不加 CORS 层；非空为逗号分隔 Origin 白名单
-* **客户端 IP**：`http_server` 使用 `into_make_service_with_connect_info`；限流等取 `http_extractors::ClientIp`。仅当直连对端落在 `TRUSTED_PROXIES`（逗号分隔 IP/CIDR）内时，才用 [`real`](https://crates.io/crates/real) 解析 `X-Forwarded-For` / `X-Real-IP` 等头，否则忽略代理头防伪造
-* **全局限流**（`axum-governor`）：按客户端 IP 令牌桶，`RATE_LIMIT_GLOBAL_*`；登录/刷新公开路由另有更紧的 `RATE_LIMIT_AUTH_*` 层（`infra/http_routing/rate_limit.rs`）
+* **客户端 IP**：`http_server` 使用 `into_make_service_with_connect_info`；限流等取 `http_extractors::ClientIp`。仅当直连对端落在 `TRUSTED_PROXIES`（逗号分隔 IP/CIDR）内时，才解析 `X-Forwarded-For` / `X-Real-IP` 等头，否则忽略代理头防伪造。**解析从右往左跳过可信网段**，取第一个非可信地址——反代只在右侧追加而不会清洗左侧，取最左值可被客户端随意伪造（曾导致限流被完全绕过）。
+* **全局限流**（`axum-governor`）：按客户端 IP 令牌桶，`RATE_LIMIT_GLOBAL_*`；登录/刷新公开路由另有更紧的 `RATE_LIMIT_AUTH_*` 层（`infra/http_routing/rate_limit.rs`）。**健康探针（`/livez` `/readyz` `/healthz`）走 `ProbeRouter`，不经过全局限流**——否则秒级探测会耗尽令牌桶并触发 liveness 误判重启。
 * **限流取舍（安全）**：登录/刷新**仅按客户端 IP** 限流，**不做** phone / refresh digest 维度。原因：原 cache 双维度滑动窗口虽能防单号多 IP 爆破，但 phone 维度可被攻击者定向锁死（v6 评审）；去掉该维度后，攻击者换 IP 可对同一手机号持续试密码——需靠 `RATE_LIMIT_AUTH_*` 收紧或后续加递增延迟 / 独立 phone 策略补回
 
 **关键：`l10n_middleware` 必须在 app 最外层。** `WebError::into_response()` 只写 extensions，需 locale 中间件转成 `ProblemDetails`；否则鉴权失败可能返回 200 空 body。

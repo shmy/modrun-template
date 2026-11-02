@@ -45,9 +45,15 @@ async fn run(state: &impl HasSession, request: LoginRequest) -> JsonResponseType
     };
 
     if let Err(err) = row.password.verify(&request.password).await {
+        // 统一映射为 `account_invalid_credentials`（401）：若透出 `account_password_incorrect`，
+        // 攻击者可区分"手机号存在但密码错"与"手机号不存在"，绕过 `equalize_timing`
+        // 抹平的时间侧信道，从响应体上重新枚举有效手机号。
+        let _ = err;
         #[cfg(feature = "otel")]
         trace_kit::metrics::record_login(false);
-        return Err(WebError::from(err));
+        return Err(WebError::from(Report::from(
+            IdentityError::AccountInvalidCredentials,
+        )));
     }
 
     let tokens = token_ops::issue_tokens(state.cache(), state.token_helper(), &row.id).await?;
@@ -59,4 +65,99 @@ async fn run(state: &impl HasSession, request: LoginRequest) -> JsonResponseType
         tokens.refresh_token,
         tokens.expires_in,
     )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tests;
+    use crate::value_object::Password;
+    use axum::http::StatusCode;
+    use cache_kit::Cache;
+    use jwt_kit::TokenHelper;
+    use migration::run_migrations;
+    use sqlx::PgPool;
+    use web_state::{HasCache, HasPool, HasTokenHelper};
+
+    struct SessionCtx {
+        pool: PgPool,
+        cache: Cache,
+        token_helper: TokenHelper,
+    }
+
+    impl HasPool for SessionCtx {
+        fn pool(&self) -> &PgPool {
+            &self.pool
+        }
+    }
+
+    impl HasCache for SessionCtx {
+        fn cache(&self) -> &Cache {
+            &self.cache
+        }
+    }
+
+    impl HasTokenHelper for SessionCtx {
+        fn token_helper(&self) -> &TokenHelper {
+            &self.token_helper
+        }
+    }
+
+    async fn session_ctx(pool: PgPool) -> SessionCtx {
+        let cache = Cache::try_new_pg(pool.clone()).await.expect("cache");
+        SessionCtx {
+            pool,
+            cache,
+            token_helper: tests::test_token_helper(),
+        }
+    }
+
+    /// 错误密码与「手机号不存在」都必须是 `account_invalid_credentials`，
+    /// 不得透出 `account_password_incorrect`（否则可枚举有效手机号）。
+    #[sqlx::test]
+    async fn wrong_password_maps_to_invalid_credentials(pool: sqlx::PgPool) {
+        run_migrations(&pool).await.expect("run migrations");
+        tests::insert_test_account(&pool, "13900001801").await;
+        let ctx = session_ctx(pool).await;
+
+        let err = run(
+            &ctx,
+            LoginRequest {
+                phone: "13900001801".to_string(),
+                password: Password::new_unchecked("wrong1234".to_string()),
+            },
+        )
+        .await
+        .expect_err("wrong password must fail");
+
+        assert_eq!(err.error_code(), "account_invalid_credentials");
+        assert_eq!(err.status_code(), StatusCode::UNAUTHORIZED);
+        assert!(
+            !err.error_code().contains("password_incorrect"),
+            "must not leak account_password_incorrect"
+        );
+    }
+
+    #[sqlx::test]
+    async fn unknown_phone_maps_to_invalid_credentials(pool: sqlx::PgPool) {
+        run_migrations(&pool).await.expect("run migrations");
+        let ctx = session_ctx(pool).await;
+
+        let err = run(
+            &ctx,
+            LoginRequest {
+                phone: "13900001899".to_string(),
+                password: Password::new_unchecked("test1234".to_string()),
+            },
+        )
+        .await
+        .expect_err("unknown phone must fail");
+
+        assert_eq!(err.error_code(), "account_invalid_credentials");
+        assert_eq!(err.status_code(), StatusCode::UNAUTHORIZED);
+        assert!(
+            !err.error_code().contains("password_incorrect"),
+            "must not leak account_password_incorrect"
+        );
+    }
 }

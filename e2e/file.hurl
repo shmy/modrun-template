@@ -52,6 +52,18 @@ Authorization: Bearer {{file_admin_at}}
 image: file,fixtures/one-by-one.png; image/png
 
 HTTP 200
+[Captures]
+uploaded_url: jsonpath "$.url"
 [Asserts]
 jsonpath "$.path" matches /^staging\//
 jsonpath "$.url" matches /^.+$/
+
+###############################################################################
+# 回源：blob-fs 公网 URL 必须能 GET（修复前无静态路由 → 上传返回的 url 恒 404）
+GET {{uploaded_url}}
+
+HTTP 200
+[Asserts]
+header "Content-Type" == "image/webp"
+header "X-Content-Type-Options" == "nosniff"
+body matches /.+/

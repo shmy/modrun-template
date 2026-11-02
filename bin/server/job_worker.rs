@@ -5,7 +5,6 @@ use tokio::sync::watch;
 use web_state::WebState;
 
 use job_queue::JobHandlers;
-
 pub fn module() -> Module {
     Module::builder("job_queue.worker").invoke(spawn_worker)
 }
@@ -25,6 +24,12 @@ fn spawn_worker(
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let mut manager = WorkerManager::new(bus, state);
         manager.register_all(&registry);
+        // job 终态失败的 metrics 由组合根注入（`job_queue_kit` 不依赖 OTel）。
+        #[cfg(feature = "otlp")]
+        let manager = manager.with_options(
+            job_queue_kit::WorkerOptions::default()
+                .with_permanent_failure_hook(trace_kit::metrics::record_job_failed),
+        );
         let mut run = Box::pin(manager.run(shutdown_rx));
         tokio::select! {
             result = run.as_mut() => {

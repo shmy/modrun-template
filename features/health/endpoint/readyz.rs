@@ -1,7 +1,7 @@
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 use serde::Serialize;
 use utoipa::ToSchema;
-use web_state::{AppState, HasPool};
+use web_state::{AppState, HasCache, HasPool};
 
 #[derive(Serialize, ToSchema)]
 pub struct ReadyzResponse {
@@ -19,6 +19,11 @@ async fn check_db(state: &impl HasPool) -> Result<(), &'static str> {
     Ok(())
 }
 
+/// 缓存可用性：会话与吊销都依赖它，不可用时鉴权链路整体失效。
+async fn check_cache(state: &impl HasCache) -> Result<(), &'static str> {
+    state.cache().probe().await.map_err(|_| "cache_unavailable")
+}
+
 #[utoipa::path(
     get,
     path = "/readyz",
@@ -30,7 +35,12 @@ async fn check_db(state: &impl HasPool) -> Result<(), &'static str> {
     ),
 )]
 pub async fn handler(State(state): State<AppState>) -> impl IntoResponse {
-    match check_db(&state).await {
+    // 数据库与缓存都是硬依赖：任一不可用，服务就无法正确鉴权 / 读写业务数据。
+    let outcome = match check_db(&state).await {
+        Err(reason) => Err(reason),
+        Ok(()) => check_cache(&state).await,
+    };
+    match outcome {
         Ok(()) => Json(ReadyzResponse {
             ready: true,
             reason: None,

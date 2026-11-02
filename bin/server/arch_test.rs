@@ -92,9 +92,13 @@ fn parse_cargo_deps<P: Into<PathBuf>>(crate_dir: P) -> HashSet<String> {
     let mut deps = HashSet::new();
 
     let doc: toml::Value = toml::from_str(&content).unwrap();
-    if let Some(dep_table) = doc.get("dependencies").and_then(|v| v.as_table()) {
-        for (name, _) in dep_table {
-            deps.insert(name.to_owned());
+    // `dev-dependencies` / `build-dependencies` 也要一并计入：否则契约可以在
+    // dev-dependencies 里引 sqlx/axum 而绕过分层守卫（测试代码同样是依赖面）。
+    for section in ["dependencies", "dev-dependencies", "build-dependencies"] {
+        if let Some(dep_table) = doc.get(section).and_then(|v| v.as_table()) {
+            for (name, _) in dep_table {
+                deps.insert(name.to_owned());
+            }
         }
     }
     deps

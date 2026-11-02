@@ -145,4 +145,29 @@ impl BackendCore {
             })
             .collect())
     }
+
+    /// 读取整个对象；不存在返回 `Ok(None)`（供静态文件服务区分 404 与故障）。
+    #[tracing::instrument(skip(self))]
+    pub(crate) async fn read(&self, path: &str) -> Result<Option<ReadOutput>> {
+        match self.op.read(path).await {
+            Ok(buffer) => Ok(Some(ReadOutput {
+                bytes: buffer.to_vec(),
+            })),
+            Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+}
+
+/// 一次整块读取的结果。
+pub(crate) struct ReadOutput {
+    pub bytes: Vec<u8>,
+}
+
+impl Debug for ReadOutput {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ReadOutput")
+            .field("bytes", &self.bytes.len())
+            .finish()
+    }
 }

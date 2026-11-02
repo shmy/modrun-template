@@ -146,6 +146,14 @@ impl Cache {
             Self::Redis(inner) => inner.purge_expired().await,
         }
     }
+
+    /// 轻量可用性探针（供 `/readyz`）：读一个不存在的 key 验证后端可连通。
+    ///
+    /// 不复用 `purge_expired`——PG 下它是全表 DELETE，不该被健康检查高频触发。
+    pub async fn probe(&self) -> Result<()> {
+        // 键名固定且永不写入，正常必然返回 None。
+        self.get::<()>("__health_probe__").await.map(|_| ())
+    }
 }
 
 #[cfg(all(test, feature = "redb"))]

@@ -19,9 +19,7 @@
     )
 )]
 
-use opentelemetry::global::meter;
-use opentelemetry::metrics::Counter;
-use std::sync::LazyLock;
+use std::fmt;
 use tokio::task::JoinSet;
 use tokio::time::MissedTickBehavior;
 use tokio::time::interval;
@@ -302,8 +300,11 @@ impl<C: Send + Sync + 'static> JobRegistry<C> {
     }
 }
 
+/// 终态失败回调：入参为 `job_type`。
+pub type PermanentFailureHook = Arc<dyn Fn(&str) + Send + Sync>;
+
 /// 消费侧运行时参数（测试可覆盖以加速）。
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct WorkerOptions {
     /// 轮询间隔（默认 200ms；延迟投递的最小精度即此值）。
     pub poll_interval: Duration,
@@ -315,6 +316,23 @@ pub struct WorkerOptions {
     pub orphan_interval: Duration,
     /// `Running` 超过该时长视为孤儿（默认 10 分钟）。
     pub orphan_timeout: Duration,
+    /// job 进入终态 `Failed` 时的回调（组合根注入 metrics / 告警）。
+    ///
+    /// kit 保持框架无关、不直接依赖 OTel，故以闭包注入而非内联埋点。
+    pub on_permanent_failure: Option<PermanentFailureHook>,
+}
+
+impl fmt::Debug for WorkerOptions {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("WorkerOptions")
+            .field("poll_interval", &self.poll_interval)
+            .field("backoff_base", &self.backoff_base)
+            .field("backoff_cap", &self.backoff_cap)
+            .field("orphan_interval", &self.orphan_interval)
+            .field("orphan_timeout", &self.orphan_timeout)
+            .field("on_permanent_failure", &self.on_permanent_failure.is_some())
+            .finish()
+    }
 }
 
 impl Default for WorkerOptions {
@@ -325,7 +343,19 @@ impl Default for WorkerOptions {
             backoff_cap: Duration::from_secs(60),
             orphan_interval: Duration::from_secs(60),
             orphan_timeout: Duration::from_secs(600),
+            on_permanent_failure: None,
         }
+    }
+}
+
+impl WorkerOptions {
+    /// 注入终态失败回调（组合根用它接 metrics / 告警）。
+    pub fn with_permanent_failure_hook(
+        mut self,
+        hook: impl Fn(&str) + Send + Sync + 'static,
+    ) -> Self {
+        self.on_permanent_failure = Some(Arc::new(hook));
+        self
     }
 }
 
@@ -598,15 +628,9 @@ async fn finish_failure(
             error = last_error,
             "job failed permanently"
         );
-        {
-            use opentelemetry::KeyValue;
-            static JOB_FAILED: LazyLock<Counter<u64>> = LazyLock::new(|| {
-                meter("modrun-template")
-                    .u64_counter("job.failed")
-                    .with_description("Background job terminal failures")
-                    .build()
-            });
-            JOB_FAILED.add(1, &[KeyValue::new("job_type", job_type.to_string())]);
+        // 指标由组合根通过 `on_permanent_failure` 注入（kit 保持框架无关）。
+        if let Some(hook) = &options.on_permanent_failure {
+            hook(job_type);
         }
         if let Err(e) = mark_failed(bus, meta.id, attempts, last_error).await {
             tracing::error!(job_type, job_id = meta.id, error = %e, "mark job failed failed");
@@ -891,6 +915,7 @@ mod tests {
             backoff_cap: Duration::from_millis(200),
             orphan_interval: Duration::from_secs(3600),
             orphan_timeout: Duration::from_secs(3600),
+            ..Default::default()
         }
     }
 

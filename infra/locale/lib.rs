@@ -257,8 +257,15 @@ mod tests {
     }
 
     fn strip_cfg_test_modules(src: &str) -> String {
-        // 粗粒度：丢掉 `#[cfg(test)]` 起至文件末尾的测试模块，避免示例 L10n 污染 shared 门禁。
-        if let Some(i) = src.find("#[cfg(test)]") {
+        // 测试模块按约定置于文件末尾，但文件**中间**也可能出现 `#[cfg(test)]`
+        // （如仅测试可见的方法）。只截断「末尾那个测试模块」，否则会把其后的
+        // 生产代码一起丢掉，让 key 完整性扫描漏检。
+        let Some(i) = src.rfind("#[cfg(test)]") else {
+            return src.to_string();
+        };
+        // 确认该处之后确实是一个测试模块（`mod ... {`），再决定截断。
+        let tail = &src[i..];
+        if tail.contains("mod ") && tail.contains('{') {
             src[..i].to_string()
         } else {
             src.to_string()

@@ -16,6 +16,7 @@ use modrun::Error;
 use modrun::{Lifecycle, Module, Result, hook};
 use shared_contract::{Id, PhoneNumber};
 use sqlx::PgPool;
+use std::env::var_os;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 mod dto;
@@ -38,6 +39,7 @@ pub fn module() -> Module {
 }
 
 fn register(lc: Lifecycle, pool: PgPool, cli: Cli) -> Result<()> {
+    warn_on_random_tsid_node(&cli);
     lc.append(hook().on_start(move || {
         let pool = pool.clone();
         let master = cli.server.master;
@@ -82,6 +84,25 @@ fn protected_routes() -> ProtectedRouter {
                 endpoint::profile_current::handler
             )),
     )
+}
+
+/// 主键由 tsid 生成；未设置 `TSID_NODE_ID` 时进程内随机取 node，多副本下可能撞号
+/// 导致 INSERT 主键冲突。单实例无风险，故只告警不阻断启动。
+fn warn_on_random_tsid_node(cli: &Cli) {
+    if var_os("TSID_NODE_ID").is_some() {
+        return;
+    }
+    if cli.server.master {
+        tracing::info!(
+            "TSID_NODE_ID is unset: this process uses a random node id. \
+             Set a unique TSID_NODE_ID per replica when running multiple instances."
+        );
+    } else {
+        tracing::warn!(
+            "TSID_NODE_ID is unset on a non-master replica: random node ids can collide \
+             across replicas and cause primary-key conflicts. Set TSID_NODE_ID."
+        );
+    }
 }
 
 async fn seed_admin(pool: &PgPool, seed: &SeedCli) -> rootcause::Result<()> {

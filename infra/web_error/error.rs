@@ -112,6 +112,7 @@ impl WebError {
                 StatusCode::NOT_FOUND => "urn:modrun:problem:not-found",
                 StatusCode::CONFLICT => "urn:modrun:problem:conflict",
                 StatusCode::TOO_MANY_REQUESTS => "urn:modrun:problem:rate-limited",
+                StatusCode::PAYLOAD_TOO_LARGE => "urn:modrun:problem:payload-too-large",
                 StatusCode::SERVICE_UNAVAILABLE => "urn:modrun:problem:service-unavailable",
                 StatusCode::REQUEST_TIMEOUT => "urn:modrun:problem:request-timeout",
                 StatusCode::INTERNAL_SERVER_ERROR => "urn:modrun:problem:internal-server-error",
@@ -129,6 +130,7 @@ impl WebError {
                 StatusCode::NOT_FOUND => "Not found",
                 StatusCode::CONFLICT => "Conflict",
                 StatusCode::TOO_MANY_REQUESTS => "Too many requests",
+                StatusCode::PAYLOAD_TOO_LARGE => "Payload too large",
                 StatusCode::SERVICE_UNAVAILABLE => "Service unavailable",
                 StatusCode::REQUEST_TIMEOUT => "Request timeout",
                 StatusCode::INTERNAL_SERVER_ERROR => "Internal server error",
@@ -147,16 +149,22 @@ impl WebError {
 
 /// 按命名约定映射状态码；域无需再维护 `account_*` 白名单。
 /// 约定（先匹配更具体的后缀/前缀）：
-/// - `access_token_*` / `authed_account_not_found` / `*_invalid_credentials` / `*_token_invalid` → 401
+/// - `access_token_*` / `authed_account_not_found` / `*_invalid_credentials` / `*_token_invalid`
+///   → 401
 /// - `*_forbidden` / `*_protected` → 403
 /// - `*_not_found` → 404
 /// - `*_duplicated` / `*_version_conflict` → 409
 /// - 其余业务 key → 400；基础设施固定 key 见 match 臂
+///
+/// 注意：不要用全局 `*_incorrect`→401。登录侧信道靠登录路径统一映射
+/// `*_invalid_credentials` 收口；已认证场景的 `account_password_incorrect`（改密）
+/// 必须保持 400，否则客户端会误判 access token 失效并强制登出。
 fn l10n_status_code(key: &str) -> StatusCode {
     match key {
         "request_timeout" => StatusCode::REQUEST_TIMEOUT,
         "internal_server_error" => StatusCode::INTERNAL_SERVER_ERROR,
         "rate_limited" => StatusCode::TOO_MANY_REQUESTS,
+        "payload_too_large" => StatusCode::PAYLOAD_TOO_LARGE,
         "cache_unavailable" => StatusCode::SERVICE_UNAVAILABLE,
         // 鉴权：须在通用 `*_not_found` 之前（authed_account_not_found 语义是未认证而非资源缺失）
         key if key.starts_with("access_token_") || key == "authed_account_not_found" => {
@@ -184,8 +192,19 @@ impl IntoResponse for WebError {
 
 impl From<Report> for WebError {
     fn from(report: Report) -> Self {
-        tracing::error!(error = %report, "request failed");
-        report_to_web_error(report)
+        // 先取报告全文再转换：`Report` 不可 Clone，且 5xx 需保留完整上下文链
+        // （含源码位置），转成 WebError 后只剩 l10n key。
+        let rendered = format!("{report}");
+        let err = report_to_web_error(report);
+        // 业务 4xx（密码错、token 过期、404 等）属正常拒绝，记 debug 即可，
+        // 否则会把错误率指标打满。
+        match err.status_code() {
+            status if status.is_server_error() => {
+                tracing::error!(error = %rendered, "request failed")
+            }
+            _ => tracing::debug!(error = %rendered, "request rejected"),
+        }
+        err
     }
 }
 
@@ -310,6 +329,11 @@ mod tests {
         assert_eq!(
             WebError::L10n("account_invalid_credentials".into()).status_code(),
             StatusCode::UNAUTHORIZED
+        );
+        // 已认证改密场景：旧密码错误是业务 400，不能进 401（否则客户端误登出）。
+        assert_eq!(
+            WebError::L10n("account_password_incorrect".into()).status_code(),
+            StatusCode::BAD_REQUEST
         );
         assert_eq!(
             WebError::L10n("refresh_token_invalid".into()).status_code(),

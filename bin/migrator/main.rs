@@ -13,7 +13,8 @@ async fn main() {
 }
 
 async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
-    dotenvy::dotenv_override().ok();
+    // 与 `config::load` 一致：真实环境优先于 `.env`（见该处注释）。
+    dotenvy::dotenv().ok();
     tracing_subscriber::fmt().init();
     let database_url = var("DATABASE_URL")?;
     let pool = PgPool::connect(&database_url).await?;

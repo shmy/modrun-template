@@ -67,7 +67,6 @@ http_server = { path = "infra/http_server", default-features = false }
 persistence = { path = "infra/persistence" }
 humantime = { version = "2.3", default-features = false }
 ipnet = { version = "2", default-features = false }
-real = { version = "0.1", default-features = false }
 secrecy = { version = "0.10", default-features = false }
 axum = { version = "0.8", default-features = false, features = [
     "http1",

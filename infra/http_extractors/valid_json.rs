@@ -7,6 +7,8 @@ use serde_path_to_error::Error as PathError;
 use validify::Validify;
 use validify_kit::{SerdeErrorKind, classify_serde_message, errors_to_key_and_field};
 
+use axum::extract::rejection::BytesRejection;
+use axum::extract::rejection::FailedToBufferBody;
 use axum::http::header::CONTENT_TYPE;
 use serde_json::Deserializer;
 use serde_json::error::Category;
@@ -50,13 +52,18 @@ where
             });
         }
 
-        let bytes = Bytes::from_request(req, state)
-            .await
-            .map_err(|_| WebError::InvalidParams {
+        let bytes = Bytes::from_request(req, state).await.map_err(|rejection| {
+            // body 超限是 413 语义，不能笼统归为「格式错误」，否则客户端无法
+            // 区分「太大」与「JSON 写错」，也无从调整分片大小。
+            if is_body_too_large(&rejection) {
+                return WebError::L10n("payload_too_large".to_string());
+            }
+            WebError::InvalidParams {
                 kind: InvalidParamsKind::Body,
                 key: "invalid_request_body".to_string(),
                 field: None,
-            })?;
+            }
+        })?;
 
         let mut de = Deserializer::from_slice(&bytes);
         let mut inner = match serde_path_to_error::deserialize::<_, T>(&mut de) {
@@ -82,6 +89,14 @@ where
         })?;
         Ok(ValidJson(inner))
     }
+}
+
+/// 判断 `Bytes` 提取失败是否因请求体超过 `DefaultBodyLimit`。
+fn is_body_too_large(rejection: &BytesRejection) -> bool {
+    matches!(
+        rejection,
+        BytesRejection::FailedToBufferBody(FailedToBufferBody::LengthLimitError(_))
+    )
 }
 
 /// serde 反序列化错误 → l10n key + 展示字段路径。

@@ -199,6 +199,19 @@ impl Blob {
         }
     }
 
+    /// 读取整个对象；不存在返回 `Ok(None)`。
+    #[tracing::instrument]
+    pub async fn read(&self, path: &str) -> Result<Option<Vec<u8>>> {
+        match self {
+            #[cfg(feature = "cos")]
+            Self::Cos(b) => b.read(path).await,
+            #[cfg(feature = "fs")]
+            Self::Fs(b) => b.read(path).await,
+            #[cfg(feature = "test-utils")]
+            Self::Test(b) => b.read(path).await,
+        }
+    }
+
     /// 预签名视频直传 URL（仅 Cos 支持；fs / test 后端返回 `BlobError::PresignUnsupported`）。
     #[tracing::instrument]
     pub async fn presign_video_upload_url(

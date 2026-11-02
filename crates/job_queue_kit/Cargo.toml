@@ -18,7 +18,6 @@ sqlite = ["sqlx/sqlite"]
 [dependencies]
 chrono = { workspace = true }
 futures-util = { workspace = true }
-opentelemetry = { workspace = true }
 rootcause = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

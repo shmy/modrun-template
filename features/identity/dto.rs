@@ -138,6 +138,9 @@ impl TokenResponse {
 #[derive(Debug, Deserialize, Validify, ToSchema)]
 pub struct RefreshRequest {
     #[schema(example = "550e8400-e29b-41d4-a716-446655440000")]
+    // 缺 `#[validify]` 时嵌套的 `RefreshToken::validate` 不会被调用，
+    // 空串与超长 token 会直接落到 401，而不是明确的 400 参数错误。
+    #[validify]
     pub refresh_token: RefreshToken,
 }
 
