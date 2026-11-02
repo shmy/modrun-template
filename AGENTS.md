@@ -52,7 +52,7 @@ just sqlx_up                 # 可选；server 启动时 persistence 也会自�
 cargo run -p server          # 生产默认 feature（blob-cos + otlp）
 just dev                     # 本地轻量：cache-pg + blob-fs + job-queue-pg，无 otlp（≠ 生产 default）
 just check                   # 与 just dev 相同 feature 集的 cargo check
-just pre_commit              # 提交前检查（含 --all-features）
+just pre_commit              # 提交前检查（全后端；job-queue pg/sqlite 分趟，不要求仓库 .sqlx）
 just e2e                     # Hurl 端到端（服务需已启动）
 ```
 
@@ -63,7 +63,7 @@ just e2e                     # Hurl 端到端（服务需已启动）
 * `cargo build/run -p server`（生产 default）只开 `blob-cos`，不编 FS/OpenDAL FS。
 * identity / file / health / http_* / scheduler / web_state **无** `default = ["dev-blob"]`；单独 check 必须由 `just lint` / `just ai-check` 显式传 `--features blob-fs`（或手动加 `blob-cos`）。
 * workspace 依赖写了 `default-features = false`，避免被 server 当依赖时带进无关后端。
-* `just pre_commit`（`--all-features`）与 `just test`（`--workspace`）会因 Cargo feature unification 同时编进 cos+fs——**质量门故意全开**；要量「轻量图」墙钟用 `just check` / `just build`，不要拿 pre_commit 当增量编译基线。
+* `just pre_commit` 与 `just test`（`--workspace`）会因 Cargo feature unification 同时编进 cos+fs——**质量门故意全开**；job-queue 的 pg/sqlite 在 pre_commit 里分趟 clippy（避免 apalis 双后端 sqlx 宏共用 `DATABASE_URL`），不提交仓库级 `.sqlx`。要量「轻量图」墙钟用 `just check` / `just build`，不要拿 pre_commit 当增量编译基线。
 
 **环境变量**：可选后端按编译 feature 前缀区分（`CACHE_REDB_PATH` / `CACHE_REDIS_URL` / `JOB_QUEUE_SQLITE_PATH` / `BLOB_FILE_*` / `BLOB_S3_*`）；`cache-pg` 与 `job-queue-pg` 共用 `DATABASE_URL`。完整列表见 `.env.example`。
 
@@ -90,7 +90,7 @@ just e2e                     # Hurl 端到端（服务需已启动）
 | `bin/server` | 组合根：`.supply()` + `.module()` 注册 | 业务逻辑 |
 | `bin/migrator` | 独立迁移二进制：读 `DATABASE_URL` 执行 `migration::run_migrations` | HTTP / 业务逻辑 |
 
-**已有 `crates/`：** `authn_kit`、`jwt_kit`、`cache_kit`、`blob_kit`、`job_queue_kit`、`sched_kit`、`image_kit`、`validify_kit`、`trace_kit`
+**已有 `crates/`：** `authn_kit`、`jwt_kit`、`cache_kit`、`blob_kit`、`job_queue_kit`（apalis 1.0 薄封装）、`sched_kit`、`image_kit`、`validify_kit`、`trace_kit`
 
 **抽库判断：** 无 modrun/axum 依赖、不绑本应用配置/文案 → 可进 `crates/`；modrun `module()` 留在 `infra/` 薄接线层（如 `infra/cache`）。
 
@@ -203,10 +203,11 @@ Workspace clippy（**禁止**，`just pre_commit` 含 `--all-targets`）：`unwr
 |------|------|
 | `infra/migration/versions/` | 业务表 |
 | `crates/cache_kit/migrations/` | `_pg_caches` 缓存表 |
+| apalis（`JobBus::try_new_*`） | 队列表：pg=`apalis.*`；sqlite=`Jobs`/`Workers`（库自带 migrate，不在本仓库 versions） |
 
-启动时 `persistence` 自动执行迁移（与 `bin/migrator` 共用同一 migrator）。**生产/CI 推荐先 `just sqlx_up`（或 `cargo run -p migrator`）再滚动发布 server**，避免多实例并发迁移。`accounts` 表另有 `remark` / `created_at` / `updated_at` 预留列，当前领域与 API 未暴露。
+启动时 `persistence` 自动执行迁移（与 `bin/migrator` 共用同一 migrator）；`job_queue` 初始化时再跑 apalis setup。**生产/CI 推荐先 `just sqlx_up`（或 `cargo run -p migrator`）再滚动发布 server**，避免多实例并发迁移。`accounts` 表另有 `remark` / `created_at` / `updated_at` 预留列，当前领域与 API 未暴露。
 
-**SQL 查询**：优先 `sqlx::query!` / `query_as!` / `query_scalar!`；编译时需 `DATABASE_URL` 指向已迁移的库（不用 offline）。
+**SQL 查询**：优先 `sqlx::query!` / `query_as!` / `query_scalar!`；编译时需 `DATABASE_URL` 指向已迁移的库（不用 offline）。编 `apalis-postgres` 时库内还须已有 `apalis.jobs`（首次 `just dev` / server 启动会 setup；空库先起一次再 `just lint`）。
 
 ## 常见陷阱
 

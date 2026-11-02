@@ -1,3 +1,0 @@
-[migrate]
-migrations-dir = "./migrations-pg"
-table-name = "_job_queue_migrations"

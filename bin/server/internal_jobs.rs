@@ -1,4 +1,4 @@
-//! 系统内务任务（全部落库为 Job，`worker_jobs` 表即执行统计台账）。
+//! 系统内务任务（全部落库为 Job；apalis 表即执行统计台账：pg=`apalis.jobs`，sqlite=`Jobs`）。
 //!
 //! - **清理（GC）**：`CacheGc` 清理缓存过期条目；`JobQueueGc` 清理超过保留期的终态 Job 行；
 //!   `BlobGc` 按月目录清理 `staging/` 暂存对象（保留天数见 `BLOB_STAGING_RETENTION_DAYS` 常量）。
@@ -118,9 +118,14 @@ fn log_gc_result(job: &'static str, deleted: u64) {
 
 pub fn job_handlers() -> JobHandlers<WebState> {
     let mut handlers = JobHandlers::default();
-    handlers.register::<CacheGc, _>(|job, ctx| Box::pin(handle_cache_gc(job, ctx)));
-    handlers.register::<JobQueueGc, _>(|job, ctx| Box::pin(handle_job_queue_gc(job, ctx)));
-    handlers.register::<BlobGc, _>(|job, ctx| Box::pin(handle_blob_gc(job, ctx)));
+    handlers.register::<CacheGc, _>(|job, ctx| {
+        Box::pin(async move { handle_cache_gc(job, &ctx).await })
+    });
+    handlers.register::<JobQueueGc, _>(|job, ctx| {
+        Box::pin(async move { handle_job_queue_gc(job, &ctx).await })
+    });
+    handlers
+        .register::<BlobGc, _>(|job, ctx| Box::pin(async move { handle_blob_gc(job, &ctx).await }));
     handlers
 }
 

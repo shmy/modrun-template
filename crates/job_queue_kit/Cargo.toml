@@ -12,15 +12,17 @@ workspace = true
 
 [features]
 default = ["pg"]
-pg = []
-sqlite = ["sqlx/sqlite"]
+pg = ["dep:apalis-postgres"]
+sqlite = ["dep:apalis-sqlite", "sqlx/sqlite"]
 
 [dependencies]
+apalis = { workspace = true }
+apalis-postgres = { workspace = true, optional = true }
+apalis-sqlite = { workspace = true, optional = true }
 chrono = { workspace = true }
 futures-util = { workspace = true }
 rootcause = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }

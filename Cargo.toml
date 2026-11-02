@@ -200,6 +200,22 @@ tsid = { version = "0.3", default-features = false }
 uuid = { version = "1", default-features = false, features = ["v4"] }
 sha2 = { version = "0.11", default-features = false }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
+# job_queue_kit：apalis 1.0 后台队列（pg/sqlite 后端）
+apalis = { version = "1.0", default-features = false, features = [
+    "tracing",
+    "timeout",
+    "config",
+    "limit",
+] }
+apalis-postgres = { version = "1.0", default-features = false, features = [
+    "migrate",
+    "tokio-comp",
+] }
+apalis-sqlite = { version = "1.0", default-features = false, features = [
+    "migrate",
+    "tokio-comp",
+    "json",
+] }
 tokio-util = { version = "0.7", default-features = false, features = ["io"] }
 # 后端 services-* / http-transport 由 blob_kit 的 cos/fs/test-utils feature 按需启用
 opendal = { version = "0.59", default-features = false, features = [

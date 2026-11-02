@@ -17,11 +17,11 @@ impl<C: Send + Sync + 'static> Clone for JobHandlers<C> {
     }
 }
 
-impl<C: Send + Sync + 'static> JobHandlers<C> {
+impl<C: Clone + Send + Sync + 'static> JobHandlers<C> {
     pub fn register<T, F>(&mut self, handler: F) -> &mut Self
     where
         T: Job,
-        F: for<'a> Fn(T, &'a C) -> BoxFuture<'a, Result<()>> + Send + Sync + 'static,
+        F: Fn(T, C) -> BoxFuture<'static, Result<()>> + Send + Sync + 'static,
     {
         self.0.register(handler);
         self

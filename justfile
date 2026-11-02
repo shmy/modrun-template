@@ -105,8 +105,28 @@ pre_commit:
     cargo machete
     cargo fixrs
     cargo fmt --all
-    # --all-features 会 unification 进全部后端（含 blob-fs）；质量门保留，与 just build 的轻量图分离
-    cargo clippy --workspace --all-targets --all-features
+    # 质量门要对齐「全后端」覆盖（blob cos+fs、cache-*、otlp 等）。
+    # 但不能 `workspace --all-features` 一把梭：那会同时启用 job_queue pg+sqlite，
+    # 而 apalis-postgres / apalis-sqlite 的 sqlx 宏不能共用 DATABASE_URL
+    # （官方也不要求本仓库提交 .sqlx；冲突来自 feature unification）。
+    #
+    # 主趟：其余 crate 仍 --all-features；排除会把 sqlite 编进依赖图的根包。
+    cargo clippy --workspace --all-targets --all-features \
+        --exclude job_queue_kit \
+        --exclude job_queue \
+        --exclude web_state \
+        --exclude server
+    # 上述根包：显式开全后端，但 job-queue 只开 pg（DATABASE_URL=PG + apalis schema）。
+    cargo clippy -p web_state --all-targets --features "job-queue-pg,blob-fs,blob-cos"
+    cargo clippy -p job_queue --all-targets --features pg
+    cargo clippy -p job_queue_kit --all-targets --features pg
+    cargo clippy -p server --all-targets --no-default-features \
+        --features "cache-pg,cache-redb,cache-redis,blob-cos,blob-fs,job-queue-pg,otlp"
+    # sqlite 队列：只用 apalis-sqlite 包内自带 .sqlx，不碰本仓库 query! 在线校验。
+    SQLX_OFFLINE=true cargo clippy -p job_queue_kit --all-targets \
+        --no-default-features --features sqlite
+    SQLX_OFFLINE=true cargo clippy -p job_queue --all-targets \
+        --no-default-features --features sqlite
     # 供应链门禁：advisories/bans/licenses/sources 四项（advisory DB 需网络，约数秒）
     cargo deny check
     cargo test -p server arch_test

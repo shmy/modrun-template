@@ -106,7 +106,7 @@ just dev                     # 本地热重载：blob-fs、无 otlp（对象落 
 
 ## 后台任务与调度
 
-* **Job 队列**（`job_queue_kit` + `bin/server/job_worker.rs`）：点对点后台任务，pg / sqlite 双后端；失败按指数退避重试（上限 `RETRIES`）、超时记一次失败、终态 `Failed` 留表可审计（DLQ-in-table）；at-least-once（孤儿恢复）。业务侧只需实现 `Job` + 注册 `JobHandlers`。
+* **Job 队列**（`job_queue_kit` 基于 [apalis](https://github.com/apalis-dev/apalis) 1.0 + `bin/server/job_worker.rs`）：点对点后台任务，pg / sqlite 双后端；失败按指数退避重试（上限 `RETRIES`）、超时记一次失败、终态 `Failed` 留表可审计（DLQ-in-table）；at-least-once（心跳孤儿恢复）。业务侧只需实现 `Job` + 注册 `JobHandlers`。
 * **定时任务**（`sched_kit` + `infra/scheduler`）：cron **只负责到点入队一个 Job**，实际执行由 job worker 承担；内务 GC（`CacheGc` / `JobQueueGc` / `BlobGc`）见 `bin/server/internal_jobs.rs`。仅 `MASTER=true` 节点注册 `scheduler.run`。
 * **对象存储**（`blob_kit`）：COS（默认）/ 本地 fs / 测试内存后端；流式写、批量删、presign（仅 COS）。
 
@@ -119,7 +119,7 @@ crates/authn_kit        鉴权协议（key 命名、Verifier trait）
 crates/jwt_kit          JWT 签发与校验
 crates/cache_kit        带 TTL 的缓存抽象（pg / redb / redis 三后端 + 原子滑动窗口限流）
 crates/blob_kit         对象存储门面（COS / fs / 内存，opendal）
-crates/job_queue_kit    后台任务队列（pg / sqlite，退避重试 / 超时 / 孤儿恢复）
+crates/job_queue_kit    后台任务队列（apalis 1.0；pg / sqlite，退避重试 / 超时 / 孤儿恢复）
 crates/sched_kit        定时任务调度（tokio-cron-scheduler 封装）
 crates/image_kit        图片压缩（JPEG/PNG → WebP）
 crates/validify_kit     serde / validify 错误 → l10n key + 字段路径
