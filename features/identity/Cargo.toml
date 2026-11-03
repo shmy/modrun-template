@@ -47,6 +47,7 @@ web_error = { workspace = true }
 web_state = { workspace = true }
 
 [dev-dependencies]
+clap = { workspace = true }
 migration = { workspace = true }
 secrecy = { workspace = true }
 serde_json = { workspace = true }

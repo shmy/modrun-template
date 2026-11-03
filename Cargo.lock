@@ -2051,6 +2051,7 @@ dependencies = [
  "authn_kit",
  "axum",
  "cache_kit",
+ "clap",
  "config",
  "http_auth",
  "http_extractors",

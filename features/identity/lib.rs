@@ -34,7 +34,7 @@ pub fn module() -> Module {
     shared::l10n::register_identity_locales();
     Module::builder("identity")
         .invoke(register)
-        .provide_group(public_routes)
+        .provide_group_result(public_routes)
         .provide_group(protected_routes)
 }
 
@@ -56,15 +56,17 @@ fn register(lc: Lifecycle, pool: PgPool, cli: Cli) -> Result<()> {
     }))
 }
 
-fn public_routes(cli: Cli) -> PublicRouter {
-    let mut router = OpenApiRouter::new()
-        .routes(routes!(endpoint::account_login::handler))
-        .routes(routes!(endpoint::account_refresh_token::handler));
-    match auth_layer(&cli) {
-        Ok(layer) => router = router.layer(layer),
-        Err(err) => tracing::error!(error = %err, "auth rate limit layer disabled"),
-    }
-    PublicRouter(router)
+/// 登录/刷新限流与 `http_server` 的 `global_layer` 一致：构建失败则进程启动失败
+/// （fail-closed），禁止 silently 降级成只剩全局限流。
+fn public_routes(cli: Cli) -> Result<PublicRouter> {
+    let layer =
+        auth_layer(&cli).map_err(|err| Error::hook(format!("auth rate limit layer: {err}")))?;
+    Ok(PublicRouter(
+        OpenApiRouter::new()
+            .routes(routes!(endpoint::account_login::handler))
+            .routes(routes!(endpoint::account_refresh_token::handler))
+            .layer(layer),
+    ))
 }
 
 fn protected_routes() -> ProtectedRouter {
@@ -136,5 +138,50 @@ async fn seed_admin(pool: &PgPool, seed: &SeedCli) -> rootcause::Result<()> {
                 Err(err)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod auth_rate_limit_fail_closed {
+    use super::*;
+    use clap::Parser;
+    use modrun::{Group, Modrun};
+
+    fn test_cli() -> Cli {
+        Cli::parse_from([
+            "server",
+            "--database-url",
+            "postgres://postgres:postgres@localhost/modrun",
+            "--jwt-secret",
+            "dev-only-jwt-secret-at-least-32-bytes!!",
+        ])
+    }
+
+    #[test]
+    fn public_routes_builds_with_default_auth_limits() {
+        public_routes(test_cli()).expect("auth rate limit layer must build with defaults");
+    }
+
+    /// 与 `provide_group_result(public_routes)` 同路径：auth_layer 构建失败必须冒泡，
+    /// 使 Modrun 启动失败（对齐 global_layer 的 fail-closed），不能吞掉后 silently 降级。
+    #[tokio::test]
+    async fn auth_layer_error_aborts_modrun_startup() {
+        fn boom(_: Cli) -> Result<PublicRouter> {
+            Err(Error::hook("auth rate limit layer: simulated failure"))
+        }
+
+        let err = Modrun::builder()
+            .no_banner()
+            .supply(test_cli())
+            .provide_group_result(boom)
+            .invoke(|_: Group<PublicRouter>| {})
+            .start()
+            .await
+            .expect_err("auth layer failure must abort startup");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("auth rate limit layer"),
+            "unexpected error: {msg}"
+        );
     }
 }
