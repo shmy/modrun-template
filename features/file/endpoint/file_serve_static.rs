@@ -12,15 +12,6 @@ pub struct ImageAssetResponse {
     pub bytes: Vec<u8>,
 }
 
-/// `blob-fs` 的公网 URL 由本进程直接回源（`BLOB_FILE_DOMAIN` 默认
-/// `http://localhost:8080/files`）。没有这条路由时，上传接口返回的 `url`
-/// 永远是 404——COS 后端由对象存储自行提供，不走这里。
-///
-/// **安全取舍**：走 `PublicRouter`（`<img>` 不带 Authorization）。保密性依赖
-/// 对象名是不可猜测的 TempoId；路径一旦泄露即等同公开。因此：
-/// - 只放行上传形态 `staging/YYYY/MM/<file>` 与转正后 `YYYY/MM/<file>`
-/// - 拒绝路径穿越 / 空段 / 绝对路径 / 其它前缀
-/// - staging 会被 GC，缓存较短；已转正对象可稍长
 #[utoipa::path(
     get,
     path = "/files/{*path}",
