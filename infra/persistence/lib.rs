@@ -27,7 +27,6 @@ async fn provide_pool(cli: Cli) -> rootcause::Result<PgPool> {
         .connect_with(options)
         .await
         .map_err(|e| Error::hook(format!("postgresql connect: {e:#}")))?;
-
     migration::run_migrations(&pool)
         .await
         .map_err(|e| Error::hook(format!("database migration: {e:#}")))?;
