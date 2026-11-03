@@ -1,6 +1,8 @@
 # 最小质量门：lint（fmt/clippy/arch_test）+ test + 供应链 deny + release-ci 构建。
 # sqlx `query!` 宏在编译期连库取 schema（项目不用 offline），故 lint/test/build 均需
-# 先起 postgres 并跑 migrator，与「生产先迁移再滚动发布」的部署顺序一致。
+# 先起 postgres 并跑 migrator（含 apalis setup），与「生产先迁移再滚动发布」一致。
+# 空库冷启 migrator 用 SQLX_OFFLINE=true：apalis-postgres 包内自带 .sqlx，可在
+# `apalis.jobs` 尚未创建时编过；setup 后再用在线校验编业务 crate。
 name: CI
 
 on:
@@ -40,13 +42,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.98.1
         with:
           components: clippy, rustfmt
+      - uses: extractions/setup-just@v2
       - uses: Swatinem/rust-cache@v2
-      - name: Migrate
-        run: cargo run -p migrator --locked
+      - name: Migrate（业务 + apalis；空库用包内 .sqlx 冷启）
+        run: SQLX_OFFLINE=true cargo run -p migrator --locked
       - name: fmt
         run: cargo fmt --all -- --check
-      - name: clippy（与 pre_commit 同口径：全 feature 全 target）
-        run: cargo clippy --workspace --all-targets --all-features
+      - name: clippy（与 just clippy_workspace / pre_commit 同口径）
+        run: just clippy_workspace
       - name: arch test（依赖方向守卫）
         run: cargo test -p server arch_test
 
@@ -73,8 +76,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.98.1
       - uses: Swatinem/rust-cache@v2
-      - name: Migrate
-        run: cargo run -p migrator --locked
+      - name: Migrate（业务 + apalis；空库用包内 .sqlx 冷启）
+        run: SQLX_OFFLINE=true cargo run -p migrator --locked
       - name: Workspace tests
         run: cargo test --workspace
 
@@ -109,12 +112,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.98.1
       - uses: Swatinem/rust-cache@v2
-      - name: Migrate
-        run: cargo run -p migrator --locked
+      - name: Migrate（业务 + apalis；空库用包内 .sqlx 冷启）
+        run: SQLX_OFFLINE=true cargo run -p migrator --locked
       - name: release-ci 构建（与 just build_release_ci 同 profile）
         run: cargo build -p server --profile release-ci --locked
       - name: lookup
         run: ls -lh target/release-ci
-
-
-

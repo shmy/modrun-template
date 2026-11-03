@@ -45,8 +45,13 @@ build_linux_x86_64_gnu_ci:
     cargo build --package server --profile release-ci --target x86_64-unknown-linux-gnu --locked
     ls -lh target/x86_64-unknown-linux-gnu/release-ci
 
+# 业务迁移 + apalis schema。空库须 SQLX_OFFLINE：apalis-postgres 宏要用包内 .sqlx
+# 才能在 `apalis.jobs` 尚未创建时编过 migrator；跑完 setup 后即可正常在线校验。
 sqlx_up:
-    cargo run --package migrator
+    #!/usr/bin/env bash
+    set -euo pipefail
+    set -a && [ -f .env ] && source .env
+    SQLX_OFFLINE=true cargo run --package migrator
 
 db-up:
     docker compose up -d
@@ -98,18 +103,12 @@ ai-check crate: (lint crate)
     cargo test -p {{crate}} $extra --quiet 2>&1 | tail -10
     echo "--- Done ---"
 
-pre_commit:
+# 与 CI lint / pre_commit 同口径：全后端覆盖，但 job-queue pg/sqlite 分趟
+# （apalis-postgres / apalis-sqlite 的 sqlx 宏不能共用 DATABASE_URL）。
+clippy_workspace:
     #!/usr/bin/env bash
     set -euo pipefail
     set -a && [ -f .env ] && source .env
-    cargo machete
-    cargo fixrs
-    cargo fmt --all
-    # 质量门要对齐「全后端」覆盖（blob cos+fs、cache-*、otlp 等）。
-    # 但不能 `workspace --all-features` 一把梭：那会同时启用 job_queue pg+sqlite，
-    # 而 apalis-postgres / apalis-sqlite 的 sqlx 宏不能共用 DATABASE_URL
-    # （官方也不要求本仓库提交 .sqlx；冲突来自 feature unification）。
-    #
     # 主趟：其余 crate 仍 --all-features；排除会把 sqlite 编进依赖图的根包。
     cargo clippy --workspace --all-targets --all-features \
         --exclude job_queue_kit \
@@ -127,6 +126,15 @@ pre_commit:
         --no-default-features --features sqlite
     SQLX_OFFLINE=true cargo clippy -p job_queue --all-targets \
         --no-default-features --features sqlite
+
+pre_commit:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    set -a && [ -f .env ] && source .env
+    cargo machete
+    cargo fixrs
+    cargo fmt --all
+    just clippy_workspace
     # 供应链门禁：advisories/bans/licenses/sources 四项（advisory DB 需网络，约数秒）
     cargo deny check
     cargo test -p server arch_test

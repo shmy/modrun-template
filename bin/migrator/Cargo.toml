@@ -12,6 +12,7 @@ path = "main.rs"
 workspace = true
 
 [dependencies]
+apalis-postgres = { workspace = true }
 dotenvy = { workspace = true }
 migration = { workspace = true }
 sqlx = { workspace = true }

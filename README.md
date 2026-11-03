@@ -114,7 +114,7 @@ just dev                     # 本地热重载：blob-fs、无 otlp（对象落 
 
 ```
 bin/server              组合根：supply(Cli, OpenApi) + 注册各模块（wiring / job_worker / internal_jobs）
-bin/migrator            独立迁移入口：读取 DATABASE_URL，执行 migration::run_migrations（部署/CI 用）
+bin/migrator            独立迁移入口：业务迁移 + apalis schema setup（部署/CI 用；空库见 just sqlx_up）
 crates/authn_kit        鉴权协议（key 命名、Verifier trait）
 crates/jwt_kit          JWT 签发与校验
 crates/cache_kit        带 TTL 的缓存抽象（pg / redb / redis 三后端 + 原子滑动窗口限流）
@@ -182,7 +182,7 @@ cargo run -p migrator
 sqlx migrate run --source infra/migration/versions --database-url "$DATABASE_URL"
 ```
 
-**SQL 查询**：优先使用 `sqlx::query!` / `query_as!` / `query_scalar!` 编译期校验；编译时需可访问的 `DATABASE_URL`（指向已跑过迁移的库），不使用 offline 模式。
+**SQL 查询**：优先使用 `sqlx::query!` / `query_as!` / `query_scalar!` 编译期校验；编译时需可访问的 `DATABASE_URL`（指向已跑过 `just sqlx_up` 的库，含 `apalis.jobs`）。本仓库不提交 `.sqlx`；空库冷启 migrator 时临时 `SQLX_OFFLINE=true`（借 `apalis-postgres` 包内缓存）。
 
 ## 集成测试
 

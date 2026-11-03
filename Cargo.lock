@@ -2537,6 +2537,7 @@ dependencies = [
 name = "migrator"
 version = "0.1.0"
 dependencies = [
+ "apalis-postgres",
  "dotenvy",
  "migration",
  "sqlx",
