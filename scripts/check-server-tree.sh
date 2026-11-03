@@ -27,12 +27,14 @@ diff_one() {
 }
 
 # 不传 --all-features：对齐生产 default（blob-cos + otlp）
+# --color never：CI 设了 CARGO_TERM_COLOR=always 时 tree 前缀会带 ANSI，
+# 终端/日志里看起来与 golden 一样，字节却不同导致误报。
 diff_one \
   "server ← shared_contract（invert depth 1）" \
-  "cargo tree -p server --edges normal -i shared_contract --depth 1 --charset ascii" \
+  "cargo tree -p server --edges normal -i shared_contract --depth 1 --charset ascii --color never" \
   "$ROOT/bin/server/testdata/shared_contract_invert_depth1.txt"
 
 diff_one \
   "shared_contract 直接依赖（depth 1）" \
-  "cargo tree -p shared_contract --edges normal --depth 1 --charset ascii" \
+  "cargo tree -p shared_contract --edges normal --depth 1 --charset ascii --color never" \
   "$ROOT/bin/server/testdata/shared_contract_deps_depth1.txt"

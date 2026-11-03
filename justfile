@@ -22,9 +22,9 @@ tree-server-bless:
     #!/usr/bin/env bash
     set -euo pipefail
     normalize() { sed -E 's/ v[^ ]+//g; s/ \([^)]*\)//g'; }
-    cargo tree -p server --edges normal -i shared_contract --depth 1 --charset ascii \
+    cargo tree -p server --edges normal -i shared_contract --depth 1 --charset ascii --color never \
       | normalize > bin/server/testdata/shared_contract_invert_depth1.txt
-    cargo tree -p shared_contract --edges normal --depth 1 --charset ascii \
+    cargo tree -p shared_contract --edges normal --depth 1 --charset ascii --color never \
       | normalize > bin/server/testdata/shared_contract_deps_depth1.txt
     echo "blessed bin/server/testdata/shared_contract_*.txt"
     just tree-server
