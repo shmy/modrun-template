@@ -90,7 +90,7 @@ just dev                     # 本地热重载：blob-fs、无 otlp（对象落 
 |------|------|------|
 | `POST` | `/api/v1/files/images` | 上传图片（multipart，≤2MiB）。魔数检测 + 解码压缩为 WebP 后写入对象存储，返回 `staging/` 路径与公网 URL |
 
-`staging/` 为暂存区：MASTER 节点每日 04:30 由 `BlobGc` 按**月目录**清理过期对象（默认保留约 30 天；按月粒度，非按天精确，月初文件可能多留近一个月）。业务确认后经 `file::attachment::commit_staging` 转正并写入 `blob_objects`；解绑 tombstone 后由每日 04:40 `AttachmentGc` 回收正式对象（pending commit 24h / tombstone 7d）。COS 可叠加生命周期规则、fs 可叠加外部 cron 作补充。上传失败返回 `file_not_image`（400）。
+`staging/` 为暂存区：MASTER 节点每日 04:30 由 `BlobGc` 按**月目录**清理过期对象（默认保留约 30 天；按月粒度，非按天精确，月初文件可能多留近一个月）；直接挂在 `staging/` 或年月目录下的非标准文件一并回收。业务确认后经 `file::attachment::commit_staging`（先登记再 mv）转正并写入 `blob_objects`；解绑 tombstone 后由每日 04:40 `AttachmentGc` 回收正式对象（pending commit 24h / tombstone 7d；仍被 `accounts.avatar` 引用的 path 跳过）。头像 `PATCH .../avatar` 须带乐观锁 `version`。COS 可叠加生命周期规则、fs 可叠加外部 cron 作补充。上传失败返回 `file_not_image`（400）。
 
 ## 探针
 

@@ -128,7 +128,7 @@ mod tests {
         avatar_ops::attach_avatar(&pool, &path)
             .await
             .expect("attach");
-        repository::update_avatar(&pool, account_id, Some(path.clone()))
+        repository::set_avatar(&pool, account_id, Some(path.clone()))
             .await
             .expect("set avatar");
 

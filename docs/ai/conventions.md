@@ -33,6 +33,42 @@
 * 域错误实现 `L10nKeyedError` 并在 `module()` 注册 mapper
 * 状态码：命名约定（`*_not_found`→404、`*_forbidden`/`*_protected`→403、`*_duplicated`/`*_version_conflict`→409、`*_invalid_credentials`/`*_token_invalid`/`access_token_*`→401）；勿在 `web_error` 加域特例白名单
 
+## 附件引用（blob / staging → 正式 path）
+
+业务表**只存正式 path**（无 `staging/`、无公网 URL）。上传走 `POST /api/v1/files/images`；转正与引用计数只经 `file::attachment`（蓝本：`identity` 头像 / `avatar_ops`）。
+
+### 状态与谁清理
+
+| 状态 | 条件 | 清理方 |
+|------|------|--------|
+| staging | 仅对象存储，无 `blob_objects` 行 | `BlobGc`（标准 `staging/YYYY/MM/` 按月；顶层/年目录下非标准文件一并删） |
+| pending | 正式 path，`ref_count=0` 且未 tombstone | `AttachmentGc`（默认 24h） |
+| attached | `ref_count≥1` | 业务 `detach` |
+| tombstone | `ref_count=0` 且已打标 | `AttachmentGc`（默认 7d） |
+
+`commit_staging`：**先 INSERT `blob_objects` 再 mv**；mv 失败回滚登记行。禁止自写「先 mv 再 INSERT」。
+
+### 新表 / 新字段接入清单
+
+1. **列语义**：`TEXT`（或列表）存正式 path；API 入参可收 staging / 公网 URL，落库前必须 commit。
+2. **单 path（头像式）**：域内薄封装（参考 `avatar_ops`）→ `commit_staging` / `attach` / `detach_best_effort`；错误映射到本域 `L10nKeyedError`。
+3. **多 path**：优先 `sync_attachments(old, new)`（返回等长正式 path 列表再落库）；其中途失败会回滚本轮 attach / 对新 commit 打 tombstone，**仍须**对业务行做补偿（见下）。
+4. **推荐顺序与补偿**（跨 PG 与 blob，无分布式事务）：
+   - 无副作用前置（哈希、鉴权、查重）→ `commit` → **写业务行**（有并发则带 `version`）→ `attach` → 对旧 path `detach`。
+   - `commit` 之后任何失败（含乐观锁 409）：对本轮新 path `detach`（tombstone）。
+   - 写行成功但 `attach` 失败：**回滚/清空业务列** + `detach` 新 path（禁止留下「行有 path、refcount=0」等 GC 误删成死链）。
+5. **删实体**：授权通过后、删行前（或同行事务内）对相关 path `detach`；幂等删除也要 detach。
+6. **AttachmentGc 安全网（必做）**：`bin/server/internal_jobs.rs` 里对候选 path 跳过「仍被业务列引用」的集合。当前仅 `identity::avatar_paths_in_use`。**新表有附件列时**：在对应 feature 提供 `*_paths_in_use(pool) -> HashSet<String>`，并在 `handle_attachment_gc` 中与现有集合合并。漏加 = 补偿失败时可能被 GC 删 blob 而成死链。
+7. **分层**：首个消费者允许 `identity`→`file`；**第二个 feature runtime 依赖 `file` 附件时**，把登记 API 抽到独立 crate（见分层表「第二消费者再拆 `attachment`」），再改 `arch_test` / tree 若需要。
+8. **测试**：happy path refcount；换绑/清空 tombstone；删实体 detach；乐观锁冲突后新 commit 已 tombstone；`commit` 源缺失无残留登记行（见 `file::attachment` 测例）。
+
+### 不要做的事
+
+* 业务表直接存 `staging/...` 或依赖 BlobGc「迟早会清」代替引用计数
+* 绕过 `blob_objects` 手写正式对象 path（GC 扫不到 → 存储泄漏）
+* 只 `commit` 不 `attach` 却长期依赖 24h pending（应用失败路径应立刻 `detach`）
+* 在 `features/file` 里写具体业务表 SQL；引用枚举留在各域 / 组合根 GC 处聚合
+
 ## 依赖变更
 
 改 `*_contract`、跨域 `pub` API、OpenAPI/DTO 前：`just who-uses <符号>`；≥3 个 crate 先与用户确认。

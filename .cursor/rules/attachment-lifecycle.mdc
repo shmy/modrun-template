@@ -1,0 +1,27 @@
+---
+description: 业务表接入附件（staging→正式 path / 引用计数 / GC）时必读清单
+globs: features/**/*.rs,bin/server/internal_jobs.rs,features/file/**/*
+alwaysApply: false
+---
+
+# 附件引用接入
+
+完整细则：`docs/ai/conventions.md` →「附件引用」。蓝本：`features/identity/shared/avatar_ops.rs` + `file::attachment`。
+
+## 必须
+
+- 业务列只存**正式 path**；入参 staging/URL 须经 `commit_staging`（先 INSERT `blob_objects` 再 mv）
+- 顺序：commit → 写业务行（并发带 version）→ attach → detach 旧 path
+- commit 后任意失败：`detach` 新 path；写行成功但 attach 失败：**回滚业务列** + detach
+- 删实体：detach 相关 path
+- **新附件列**：实现 `*_paths_in_use`，并入 `bin/server/internal_jobs.rs` 的 AttachmentGc 安全网（与 `identity::avatar_paths_in_use` 合并）
+
+## 选择
+
+- 单 path → 域内薄封装（仿 `avatar_ops`）
+- 多 path → `sync_attachments`；仍要业务行补偿
+- 第二个 feature 依赖 `file` 附件登记 → 抽独立 crate（见 conventions 分层表）
+
+## 禁止
+
+- 业务表存 `staging/`；手写正式对象绕过 `blob_objects`；在 `file` 里写他域表 SQL

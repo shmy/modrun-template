@@ -1,9 +1,15 @@
 //! 正式对象引用登记：commit（staging→正式）/ attach / detach / sync。
 //! staging 仍由 BlobGc 清理；本模块只跟踪转正后的 path。
+//!
+//! `commit_staging` 先 INSERT 再 mv：避免「对象已转正但无登记行」导致双 GC 都扫不到。
+//!
+//! **新业务表接附件**：按 `docs/ai/conventions.md`「附件引用」清单做
+//! （失败补偿、`*_paths_in_use` 并入 AttachmentGc、第二消费者再拆 crate）。
+//! 单 path 蓝本：`identity::shared::avatar_ops`。
 
 use std::collections::HashSet;
 
-use blob_kit::{Blob, BlobError};
+use blob_kit::{Blob, BlobError, STAGING_PREFIX, is_safe_object_path};
 use file_contract::FileError;
 use rootcause::Result;
 use sqlx::PgPool;
@@ -14,11 +20,10 @@ pub const PENDING_COMMIT_TTL_HOURS: i64 = 24;
 pub const TOMBSTONE_RETENTION_DAYS: i64 = 7;
 
 /// staging（或公网 URL）→ 正式 path，并登记 `ref_count = 0`。
+///
+/// 顺序：先写 `blob_objects`，再 `mv`。mv 失败则删除登记行，staging 保持不动。
 pub async fn commit_staging(pool: &PgPool, blob: &Blob, submitted: &str) -> Result<String> {
-    let path = blob
-        .mv_out_of_staging(submitted)
-        .await
-        .map_err(map_blob_err)?;
+    let (from, path) = resolve_staging_move(blob, submitted)?;
     sqlx::query!(
         r#"
         INSERT INTO blob_objects (path, ref_count)
@@ -28,7 +33,40 @@ pub async fn commit_staging(pool: &PgPool, blob: &Blob, submitted: &str) -> Resu
     )
     .execute(pool)
     .await?;
+    if let Err(err) = blob.mv(&from, &path).await {
+        if let Err(rollback_err) = delete_registration(pool, &path).await {
+            tracing::error!(
+                error = %rollback_err,
+                path,
+                "commit_staging: mv failed and registration rollback failed"
+            );
+        }
+        return Err(map_blob_err(err));
+    }
     Ok(path)
+}
+
+/// 解析 staging → 正式 path；不做 IO。
+fn resolve_staging_move(blob: &Blob, submitted: &str) -> Result<(String, String)> {
+    let from = blob.strip_public_url_prefix(submitted.trim()).into_owned();
+    let Some(to) = from
+        .strip_prefix(STAGING_PREFIX)
+        .filter(|rest| !rest.is_empty())
+        .map(str::to_string)
+    else {
+        return Err(FileError::AttachmentInvalid.into());
+    };
+    if !is_safe_object_path(&from) || !is_safe_object_path(&to) {
+        return Err(FileError::AttachmentInvalid.into());
+    }
+    Ok((from, to))
+}
+
+async fn delete_registration(pool: &PgPool, path: &str) -> Result<()> {
+    sqlx::query!(r#"DELETE FROM blob_objects WHERE path = $1"#, path)
+        .execute(pool)
+        .await?;
+    Ok(())
 }
 
 /// 增加引用；清除 tombstone。
@@ -82,6 +120,9 @@ pub async fn detach_best_effort(pool: &PgPool, path: &str) {
 
 /// 列表同步：detach(old−new)，对 new 中 staging 先 commit，再 attach(new−old)。
 /// 返回与 `new_paths` 等长的正式 path 列表（顺序保持）。
+///
+/// attach 中途失败时：回滚本轮已 attach 的 path，并对本轮新 commit 且未进入 old
+/// 的 path 打 tombstone，避免留下 ref≥1 孤儿或长期 pending。
 pub async fn sync_attachments(
     pool: &PgPool,
     blob: &Blob,
@@ -90,14 +131,30 @@ pub async fn sync_attachments(
 ) -> Result<Vec<String>> {
     let old_set: HashSet<&str> = old_paths.iter().map(String::as_str).collect();
     let mut resolved = Vec::with_capacity(new_paths.len());
+    let mut committed_new: Vec<String> = Vec::new();
     for raw in new_paths {
         let trimmed = raw.trim();
         if trimmed.is_empty() {
+            // 已 commit 的尚无业务引用：tombstone，交 AttachmentGc。
+            for path in &committed_new {
+                detach_best_effort(pool, path).await;
+            }
             return Err(FileError::AttachmentInvalid.into());
         }
         let stripped = blob.strip_public_url_prefix(trimmed);
-        let permanent = if stripped.starts_with(blob_kit::STAGING_PREFIX) {
-            commit_staging(pool, blob, trimmed).await?
+        let permanent = if stripped.starts_with(STAGING_PREFIX) {
+            match commit_staging(pool, blob, trimmed).await {
+                Ok(path) => {
+                    committed_new.push(path.clone());
+                    path
+                }
+                Err(err) => {
+                    for path in &committed_new {
+                        detach_best_effort(pool, path).await;
+                    }
+                    return Err(err);
+                }
+            }
         } else {
             stripped.into_owned()
         };
@@ -108,6 +165,7 @@ pub async fn sync_attachments(
     for path in old_set.difference(&new_set) {
         detach_best_effort(pool, path).await;
     }
+    let mut attached_new: Vec<String> = Vec::new();
     for path in new_set.difference(&old_set) {
         // 刚 commit 的尚无行外引用；已存在正式 path 须已登记。
         if sqlx::query_scalar!(
@@ -126,7 +184,19 @@ pub async fn sync_attachments(
             .execute(pool)
             .await?;
         }
-        attach(pool, path).await?;
+        if let Err(err) = attach(pool, path).await {
+            for a in &attached_new {
+                detach_best_effort(pool, a).await;
+            }
+            // 本轮 commit 但尚未成功 attach 的：tombstone，避免 24h pending 窗口。
+            for c in &committed_new {
+                if !attached_new.iter().any(|a| a == c) && !old_set.contains(c.as_str()) {
+                    detach_best_effort(pool, c).await;
+                }
+            }
+            return Err(err);
+        }
+        attached_new.push((*path).to_string());
     }
     Ok(resolved)
 }
@@ -162,9 +232,7 @@ pub async fn purge_object(pool: &PgPool, blob: &Blob, path: &str) -> Result<()> 
         tracing::warn!(error = %err, path, "attachment gc: blob delete failed");
         return Err(err);
     }
-    sqlx::query!(r#"DELETE FROM blob_objects WHERE path = $1"#, path)
-        .execute(pool)
-        .await?;
+    delete_registration(pool, path).await?;
     Ok(())
 }
 
@@ -226,6 +294,27 @@ mod tests {
         .unwrap();
         assert_eq!(row.ref_count, 0);
         assert!(row.tombstoned_at.is_some());
+    }
+
+    #[sqlx::test]
+    async fn commit_staging_missing_source_rolls_back_registration(pool: sqlx::PgPool) {
+        run_migrations(&pool).await.expect("migrate");
+        let blob = Blob::new_for_test().await.expect("blob");
+        let err = commit_staging(&pool, &blob, "staging/2026/01/missing.webp")
+            .await
+            .expect_err("missing");
+        assert!(err.downcast_current_context::<FileError>().is_some());
+        let row = sqlx::query_scalar!(
+            r#"SELECT 1 AS "one!" FROM blob_objects WHERE path = $1"#,
+            "2026/01/missing.webp"
+        )
+        .fetch_optional(&pool)
+        .await
+        .unwrap();
+        assert!(
+            row.is_none(),
+            "registration must be rolled back after mv failure"
+        );
     }
 
     #[sqlx::test]

@@ -87,8 +87,18 @@ impl Job for AttachmentGc {
 
 async fn handle_attachment_gc(_job: AttachmentGc, ctx: &WebState) -> Result<()> {
     let candidates = attachment::list_gc_candidates(&ctx.pg).await?;
+    // 安全网：落库成功但 attach 失败等不一致时，业务列仍引用则跳过，避免误删成死链。
+    // 新表有附件列时：在此合并对应 feature 的 `*_paths_in_use`（见 docs/ai/conventions.md「附件引用」）。
+    let in_use = identity::avatar_paths_in_use(&ctx.pg).await?;
     let mut deleted = 0u64;
     for path in candidates {
+        if in_use.contains(&path) {
+            tracing::warn!(
+                path,
+                "attachment gc: path still referenced by accounts.avatar; skip"
+            );
+            continue;
+        }
         match attachment::purge_object(&ctx.pg, &ctx.blob, &path).await {
             Ok(()) => deleted += 1,
             Err(err) => {
@@ -100,8 +110,10 @@ async fn handle_attachment_gc(_job: AttachmentGc, ctx: &WebState) -> Result<()> 
     Ok(())
 }
 
-/// 遍历 `staging/YYYY/MM/`：月份早于 cutoff 所属月初的整月目录，收集其下全部对象。
-/// 非标准路径（非 `staging/YYYY/MM`）一律跳过，避免误删。
+/// 遍历 `staging/`：
+/// - 标准 `staging/YYYY/MM/`：整月早于 cutoff 月初则删其下文件；
+/// - **非标准文件**（直接挂在 `staging/` 或 `staging/<year>/` 下）：一律回收，避免永久泄漏。
+/// - 无法解析为年月的**目录**仍跳过（避免误删未知树）。
 async fn collect_staging_expired(blob: &Blob, cutoff: NaiveDate) -> Result<Vec<String>> {
     // 只删除「整个月」都早于保留窗口的目录：防止误删当月内较新的对象。
     let cutoff_month = match cutoff.with_day(1) {
@@ -114,10 +126,17 @@ async fn collect_staging_expired(blob: &Blob, cutoff: NaiveDate) -> Result<Vec<S
         .await?;
     for year_dir in year_dirs {
         if year_dir.is_file {
+            // staging/orphan.webp 等非标准顶层文件
+            expired.push(year_dir.path);
             continue;
         }
         let month_dirs = blob.list_children(&year_dir.path).await?;
         for month_dir in month_dirs {
+            if month_dir.is_file {
+                // staging/2026/orphan.webp
+                expired.push(month_dir.path);
+                continue;
+            }
             let Some(month) = file_contract::staging_dir_date(&month_dir.path) else {
                 continue;
             };
@@ -216,13 +235,13 @@ mod tests {
             .await
             .expect("collect");
 
-        assert_eq!(expired.len(), 2);
+        assert_eq!(expired.len(), 3);
         assert!(expired.iter().any(|p| p.contains("/07/")));
         assert!(expired.iter().any(|p| p.contains("/08/")));
         assert!(!expired.iter().any(|p| p.contains("/09/")));
+        assert!(expired.iter().any(|p| p == "staging/orphan.webp"));
 
         let mut cleanup = expired;
-        cleanup.push("staging/orphan.webp".to_string());
         cleanup.push("staging/2026/09/keep.webp".to_string());
         blob.delete_many(cleanup).await.expect("cleanup");
     }

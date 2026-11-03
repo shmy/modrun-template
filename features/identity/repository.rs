@@ -184,8 +184,52 @@ pub async fn update(pool: &PgPool, account: &Account) -> Result<Account> {
     }
 }
 
-/// 更新头像（`None` 清空）；同步 bump version。
-pub async fn update_avatar(pool: &PgPool, id: Id, avatar: Option<String>) -> Result<Account> {
+/// 更新头像（`None` 清空）；要求 `expected_version` 匹配，同步 bump version。
+pub async fn update_avatar(
+    pool: &PgPool,
+    id: Id,
+    avatar: Option<String>,
+    expected_version: i64,
+) -> Result<Account> {
+    let mut conn = pool.acquire().await?;
+    let row = sqlx::query_as!(
+        AccountRow,
+        r#"
+        WITH updated AS (
+            UPDATE accounts
+            SET avatar = $2, version = version + 1
+            WHERE id = $1 AND version = $3
+            RETURNING id, name, phone, password, privileged, avatar, version
+        )
+        SELECT id, name, phone, password, privileged, avatar, version
+        FROM updated
+        "#,
+        *id,
+        avatar,
+        expected_version
+    )
+    .fetch_optional(&mut *conn)
+    .await?;
+
+    match row {
+        Some(row) => Ok(row.into_account()),
+        None => {
+            let exists =
+                sqlx::query_scalar!(r#"SELECT 1 as "one!" FROM accounts WHERE id = $1"#, *id)
+                    .fetch_optional(&mut *conn)
+                    .await?;
+            Err(if exists.is_some() {
+                IdentityError::AccountVersionConflict
+            } else {
+                IdentityError::AccountNotFound
+            }
+            .into())
+        }
+    }
+}
+
+/// 无条件写头像并 bump version（attach 失败回滚 / 测试夹具）。
+pub async fn set_avatar(pool: &PgPool, id: Id, avatar: Option<String>) -> Result<Account> {
     let mut conn = pool.acquire().await?;
     let row = sqlx::query_as!(
         AccountRow,
@@ -206,6 +250,15 @@ pub async fn update_avatar(pool: &PgPool, id: Id, avatar: Option<String>) -> Res
     .await?
     .ok_or(IdentityError::AccountNotFound)?;
     Ok(row.into_account())
+}
+
+/// 仍被 `accounts.avatar` 引用的正式 path（AttachmentGc 安全网）。
+pub async fn list_avatar_paths_in_use(pool: &PgPool) -> Result<Vec<String>> {
+    let rows =
+        sqlx::query_scalar!(r#"SELECT avatar AS "avatar!" FROM accounts WHERE avatar IS NOT NULL"#)
+            .fetch_all(pool)
+            .await?;
+    Ok(rows)
 }
 
 pub async fn delete(pool: &PgPool, id: Id) -> Result<()> {

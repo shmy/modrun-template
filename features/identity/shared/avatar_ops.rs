@@ -1,11 +1,15 @@
 //! 头像绑定：经 `file::attachment` 登记正式对象（commit / attach / detach）。
 
+use std::collections::HashSet;
+
 use blob_kit::Blob;
 use file::attachment;
 use file_contract::FileError;
 use identity_contract::IdentityError;
 use rootcause::Result;
 use sqlx::PgPool;
+
+use crate::repository;
 
 /// staging / 公网 URL → 正式 path 并登记（ref_count=0）。
 pub async fn commit_avatar(pool: &PgPool, blob: &Blob, submitted: &str) -> Result<String> {
@@ -20,6 +24,14 @@ pub async fn attach_avatar(pool: &PgPool, path: &str) -> Result<()> {
 
 pub async fn detach_avatar(pool: &PgPool, path: &str) {
     attachment::detach_best_effort(pool, path).await;
+}
+
+/// AttachmentGc 安全网：跳过仍挂在账号上的 path，避免落库成功但 attach 失败时误删。
+pub async fn avatar_paths_in_use(pool: &PgPool) -> Result<HashSet<String>> {
+    Ok(repository::list_avatar_paths_in_use(pool)
+        .await?
+        .into_iter()
+        .collect())
 }
 
 fn map_file_err(err: rootcause::Report) -> rootcause::Report {

@@ -21,6 +21,9 @@ pub struct UpdateAvatarRequest {
     #[validate(custom(validate_avatar))]
     #[schema(example = "staging/2026/01/abc.webp")]
     pub avatar: Option<String>,
+    /// 乐观锁：须与当前账号 `version` 一致。
+    #[schema(example = 1)]
+    pub version: i64,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -44,7 +47,8 @@ pub struct UpdateAvatarResponse {
         (status = 400, description = "参数校验失败或头像 path 非法", body = ProblemDetails),
         (status = 401, description = "未认证", body = ProblemDetails),
         (status = 403, description = "调用方不是特权账号，或目标受保护", body = ProblemDetails),
-        (status = 404, description = "账号或不存在的 staging 对象", body = ProblemDetails)
+        (status = 404, description = "账号或不存在的 staging 对象", body = ProblemDetails),
+        (status = 409, description = "乐观锁版本冲突", body = ProblemDetails)
     ),
     security(("bearerAuth" = []))
 )]
@@ -69,6 +73,7 @@ pub(crate) async fn execute(
     else {
         return Err(IdentityError::AccountNotFound.into());
     };
+    let old_avatar = before.avatar.clone();
     let avatar = match request
         .avatar
         .as_deref()
@@ -78,11 +83,35 @@ pub(crate) async fn execute(
         Some(submitted) => Some(avatar_ops::commit_avatar(pool, blob, submitted).await?),
         None => None,
     };
-    let account = repository::update_avatar(pool, path.id, avatar.clone()).await?;
-    if let Some(path) = avatar.as_deref() {
-        avatar_ops::attach_avatar(pool, path).await?;
+    let account =
+        match repository::update_avatar(pool, path.id, avatar.clone(), request.version).await {
+            Ok(account) => account,
+            Err(err) => {
+                // 乐观锁等失败：tombstone 本轮已 commit 且不同于旧头像的对象。
+                if let Some(new_path) = avatar.as_deref()
+                    && Some(new_path) != old_avatar.as_deref()
+                {
+                    avatar_ops::detach_avatar(pool, new_path).await;
+                }
+                return Err(err);
+            }
+        };
+    if let Some(new_path) = avatar.as_deref()
+        && let Err(err) = avatar_ops::attach_avatar(pool, new_path).await
+    {
+        // 落库已成功：回滚 avatar 列，避免死链；tombstone 新对象。
+        if let Err(rollback_err) = repository::set_avatar(pool, path.id, old_avatar.clone()).await {
+            tracing::warn!(
+                error = %rollback_err,
+                account_id = %path.id,
+                path = new_path,
+                "update_avatar: attach failed and avatar rollback failed"
+            );
+        }
+        avatar_ops::detach_avatar(pool, new_path).await;
+        return Err(err);
     }
-    if let Some(old) = before.avatar
+    if let Some(old) = old_avatar
         && Some(old.as_str()) != avatar.as_deref()
     {
         avatar_ops::detach_avatar(pool, &old).await;
@@ -121,6 +150,7 @@ mod tests {
             AccountIdPath { id: account_id },
             UpdateAvatarRequest {
                 avatar: Some(staging.to_string()),
+                version: 1,
             },
         )
         .await
@@ -136,7 +166,10 @@ mod tests {
             &blob,
             actor,
             AccountIdPath { id: account_id },
-            UpdateAvatarRequest { avatar: None },
+            UpdateAvatarRequest {
+                avatar: None,
+                version: 2,
+            },
         )
         .await
         .unwrap();
@@ -156,6 +189,42 @@ mod tests {
     }
 
     #[sqlx::test]
+    async fn test_update_avatar_version_conflict_tombstones_commit(pool: sqlx::PgPool) {
+        run_migrations(&pool).await.expect("run migrations");
+        let blob = Blob::new_for_test().await.expect("test blob");
+        let actor = tests::insert_privileged_account(&pool, "13900001840").await;
+        let account_id = tests::insert_test_account(&pool, "13900001841").await;
+
+        let staging = "staging/2026/01/conflict.webp";
+        blob.write(staging, Cursor::new(b"img"))
+            .await
+            .expect("write");
+
+        let err = execute(
+            &pool,
+            &blob,
+            actor,
+            AccountIdPath { id: account_id },
+            UpdateAvatarRequest {
+                avatar: Some(staging.to_string()),
+                version: 99,
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(err.to_string().contains("account_version_conflict"));
+        let row = sqlx::query!(
+            r#"SELECT ref_count, tombstoned_at FROM blob_objects WHERE path = $1"#,
+            "2026/01/conflict.webp"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(row.ref_count, 0);
+        assert!(row.tombstoned_at.is_some());
+    }
+
+    #[sqlx::test]
     async fn test_update_avatar_protected(pool: sqlx::PgPool) {
         run_migrations(&pool).await.expect("run migrations");
         let blob = Blob::new_for_test().await.expect("test blob");
@@ -167,6 +236,7 @@ mod tests {
             AccountIdPath { id: actor },
             UpdateAvatarRequest {
                 avatar: Some("staging/2026/01/abc.webp".to_string()),
+                version: 1,
             },
         )
         .await
@@ -188,6 +258,7 @@ mod tests {
             },
             UpdateAvatarRequest {
                 avatar: Some("staging/2026/01/abc.webp".to_string()),
+                version: 1,
             },
         )
         .await
@@ -208,6 +279,7 @@ mod tests {
             AccountIdPath { id: account_id },
             UpdateAvatarRequest {
                 avatar: Some("2026/01/already.webp".to_string()),
+                version: 1,
             },
         )
         .await

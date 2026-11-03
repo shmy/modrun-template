@@ -226,6 +226,7 @@ Workspace clippy（**禁止**，`just pre_commit` 含 `--all-targets`）：`unwr
 
 | 场景 | 参考 |
 |------|------|
+| 新表接附件（commit/attach/GC） | `docs/ai/conventions.md`「附件引用」；蓝本 `features/identity/shared/avatar_ops.rs` |
 | feature 模块结构 | `features/identity/lib.rs` |
 | 架构依赖测试 | `bin/server/arch_test.rs` |
 | AI 按需文档 | `docs/ai/backend.md`、`docs/ai/conventions.md` |

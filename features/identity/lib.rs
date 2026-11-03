@@ -26,6 +26,9 @@ mod repository;
 mod shared;
 mod value_object;
 
+/// AttachmentGc 安全网：仍被 `accounts.avatar` 引用的正式 path。
+pub use shared::avatar_ops::avatar_paths_in_use;
+
 #[cfg(test)]
 pub(crate) mod tests;
 

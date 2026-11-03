@@ -87,6 +87,8 @@ pub(crate) async fn execute(
     {
         return Err(IdentityError::AccountDuplicated.into());
     }
+    // 哈希放在 commit 前：避免 argon2 失败时留下 pending 正式对象。
+    let password = HashedPassword::try_new(&request.password).await?;
     let id = Id::default();
     let avatar = match request
         .avatar
@@ -101,24 +103,32 @@ pub(crate) async fn execute(
         id,
         name: request.name,
         phone,
-        password: HashedPassword::try_new(&request.password).await?,
+        password,
         privileged: false,
         avatar: avatar.clone(),
         version: 1,
     };
     if let Err(err) = repository::create(pool, &account).await {
-        // 并发双插入：tombstone 本次 commit（refcount=0），交 AttachmentGc 回收。
-        if err
-            .downcast_current_context::<IdentityError>()
-            .is_some_and(|e| matches!(e, IdentityError::AccountDuplicated))
-            && let Some(path) = avatar.as_deref()
-        {
+        // 任意落库失败：tombstone 本次 commit，交 AttachmentGc。
+        if let Some(path) = avatar.as_deref() {
             avatar_ops::detach_avatar(pool, path).await;
         }
         return Err(err);
     }
-    if let Some(path) = avatar.as_deref() {
-        avatar_ops::attach_avatar(pool, path).await?;
+    if let Some(path) = avatar.as_deref()
+        && let Err(err) = avatar_ops::attach_avatar(pool, path).await
+    {
+        // 账号已存在且 avatar 列已写：清空避免死链，并 tombstone 对象。
+        if let Err(clear_err) = repository::set_avatar(pool, id, None).await {
+            tracing::warn!(
+                error = %clear_err,
+                account_id = %id,
+                path,
+                "create: attach failed and avatar clear failed"
+            );
+        }
+        avatar_ops::detach_avatar(pool, path).await;
+        return Err(err);
     }
     Ok(CreateAccountResponse {
         id,
@@ -255,5 +265,45 @@ mod tests {
         .await
         .unwrap_err();
         assert!(err.to_string().contains("account_avatar_not_found"));
+    }
+
+    /// create UNIQUE 失败后对已 commit path detach，应进入 tombstone（与 execute 补偿一致）。
+    #[sqlx::test]
+    async fn test_create_failure_detaches_committed_avatar(pool: sqlx::PgPool) {
+        run_migrations(&pool).await.expect("run migrations");
+        let blob = Blob::new_for_test().await.expect("test blob");
+        tests::insert_test_account(&pool, "13900001241").await;
+
+        let staging = "staging/2026/01/dup.webp";
+        blob.write(staging, Cursor::new(b"img"))
+            .await
+            .expect("write");
+        let path = avatar_ops::commit_avatar(&pool, &blob, staging)
+            .await
+            .expect("commit");
+        let account = Account {
+            id: Id::default(),
+            name: "Dup".into(),
+            phone: PhoneNumber::new_unchecked("13900001241".into()),
+            password: HashedPassword::try_new(&Password::new_unchecked("admin123!".into()))
+                .await
+                .unwrap(),
+            privileged: false,
+            avatar: Some(path.clone()),
+            version: 1,
+        };
+        let err = repository::create(&pool, &account).await.expect_err("dup");
+        assert!(err.to_string().contains("account_duplicated"));
+        // 与 execute 中 create 失败分支相同
+        avatar_ops::detach_avatar(&pool, &path).await;
+        let row = sqlx::query!(
+            r#"SELECT ref_count, tombstoned_at FROM blob_objects WHERE path = $1"#,
+            path
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(row.ref_count, 0);
+        assert!(row.tombstoned_at.is_some());
     }
 }
