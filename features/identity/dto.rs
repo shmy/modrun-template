@@ -39,6 +39,8 @@ pub struct AccountPublic {
     #[schema(value_type = String, example = "13888888888")]
     pub phone: PhoneNumber,
     pub privileged: bool,
+    #[schema(example = "staging/2026/01/abc.webp")]
+    pub avatar: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -50,6 +52,8 @@ pub struct AccountDetail {
     #[schema(value_type = String, example = "13888888888")]
     pub phone: PhoneNumber,
     pub privileged: bool,
+    #[schema(example = "staging/2026/01/abc.webp")]
+    pub avatar: Option<String>,
     pub version: i64,
 }
 
@@ -68,6 +72,7 @@ impl From<Account> for AccountPublic {
             name: account.name,
             phone: account.phone,
             privileged: account.privileged,
+            avatar: account.avatar,
         }
     }
 }
@@ -79,6 +84,7 @@ impl From<AccountListItem> for AccountPublic {
             name: item.name,
             phone: item.phone,
             privileged: item.privileged,
+            avatar: item.avatar,
         }
     }
 }
@@ -90,9 +96,25 @@ impl From<Account> for AccountDetail {
             name: account.name,
             phone: account.phone,
             privileged: account.privileged,
+            avatar: account.avatar,
             version: account.version,
         }
     }
+}
+
+/// validify custom：仅在 `Option::Some` 时调用；trim 后长度须 1..=255。
+pub fn validate_avatar(avatar: &str) -> Result<(), ValidationError> {
+    let trimmed = avatar.trim();
+    if trimmed.is_empty() {
+        return Err(validify::field_err!(
+            "too_short",
+            "account_avatar_too_short"
+        ));
+    }
+    if trimmed.len() > 255 {
+        return Err(validify::field_err!("too_long", "account_avatar_too_long"));
+    }
+    Ok(())
 }
 
 #[derive(Debug, Deserialize, Validify, ToSchema)]

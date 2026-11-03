@@ -11,7 +11,7 @@ use validify::Validify;
 use web_error::{JsonResponseType, ProblemDetails};
 use web_state::{AppState, HasPool};
 
-use crate::dto::validate_phone_number;
+use crate::dto::{validate_avatar, validate_phone_number};
 use crate::repository;
 use shared_contract::PhoneNumber;
 
@@ -29,6 +29,10 @@ pub struct CreateAccountRequest {
     #[schema(example = "P@ssw0rd1")]
     #[validify]
     pub password: Password,
+    /// 可选头像对象路径（先走 `/api/v1/files/images` 上传拿到 path）。
+    #[validate(custom(validate_avatar))]
+    #[schema(example = "staging/2026/01/abc.webp")]
+    pub avatar: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -36,6 +40,7 @@ pub struct CreateAccountResponse {
     #[schema(value_type = String)]
     pub id: Id,
     pub name: String,
+    pub avatar: Option<String>,
 }
 
 #[utoipa::path(
@@ -69,18 +74,26 @@ pub(crate) async fn execute(
 ) -> rootcause::Result<CreateAccountResponse> {
     repository::require_privileged(pool, actor_id).await?;
     let id = Id::default();
+    let avatar = request
+        .avatar
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned);
     let account = Account {
         id,
         name: request.name,
         phone: PhoneNumber::new_unchecked(request.phone),
         password: HashedPassword::try_new(&request.password).await?,
         privileged: false,
+        avatar,
         version: 1,
     };
     repository::create(pool, &account).await?;
     Ok(CreateAccountResponse {
         id,
         name: account.name,
+        avatar: account.avatar,
     })
 }
 
@@ -102,12 +115,14 @@ mod tests {
                 name: "Tom".to_string(),
                 phone: "13900001201".to_string(),
                 password: Password::new_unchecked("admin123!".to_string()),
+                avatar: Some("staging/2026/01/abc.webp".to_string()),
             },
         )
         .await
         .unwrap();
         assert!(i64::from(response.id) > 0);
         assert_eq!(response.name, "Tom");
+        assert_eq!(response.avatar.as_deref(), Some("staging/2026/01/abc.webp"));
     }
 
     #[sqlx::test]
@@ -121,6 +136,7 @@ mod tests {
                 name: "Tom".to_string(),
                 phone: "13900001211".to_string(),
                 password: Password::new_unchecked("admin123!".to_string()),
+                avatar: None,
             },
         )
         .await
@@ -140,6 +156,7 @@ mod tests {
                 name: "Tom".to_string(),
                 phone: "13900001221".to_string(),
                 password: Password::new_unchecked("admin123!".to_string()),
+                avatar: None,
             },
         )
         .await

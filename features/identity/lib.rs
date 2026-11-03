@@ -80,6 +80,7 @@ fn protected_routes() -> ProtectedRouter {
                 endpoint::account_delete::handler
             ))
             .routes(routes!(endpoint::account_reset_password::handler))
+            .routes(routes!(endpoint::account_update_avatar::handler))
             .routes(routes!(
                 endpoint::account_logout::handler,
                 endpoint::account_update_password::handler,
@@ -120,6 +121,7 @@ async fn seed_admin(pool: &PgPool, seed: &SeedCli) -> rootcause::Result<()> {
         phone: PhoneNumber::try_new(&phone)?,
         password: HashedPassword::try_new(seed.admin_password.expose_secret()).await?,
         privileged: true,
+        avatar: None,
         version: 1,
     };
     match repository::create_privileged_if_absent(pool, &account).await {

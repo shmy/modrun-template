@@ -205,8 +205,8 @@ mod tests {
         let password = HashedPassword::try_new_sync("test1234").unwrap();
         sqlx::query!(
             r#"
-            INSERT INTO accounts (id, name, phone, password, privileged, version)
-            VALUES ($1, $2, $3, $4, FALSE, 1)
+            INSERT INTO accounts (id, name, phone, password, privileged, avatar, version)
+            VALUES ($1, $2, $3, $4, FALSE, NULL, 1)
             "#,
             *named_id,
             "100%match",

@@ -69,6 +69,8 @@ mod tests {
             "account_password_too_long",
             "account_name_too_short",
             "account_name_too_long",
+            "account_avatar_too_short",
+            "account_avatar_too_long",
         ] {
             assert_key(key);
         }

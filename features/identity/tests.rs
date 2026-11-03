@@ -28,8 +28,8 @@ async fn insert_test_account_with(pool: &PgPool, phone: &str, privileged: bool) 
     let password = HashedPassword::try_new_sync("test1234").expect("hash password");
     sqlx::query!(
         r#"
-            INSERT INTO accounts (id, name, phone, password, privileged, version)
-            VALUES ($1, $2, $3, $4, $5, 1)
+            INSERT INTO accounts (id, name, phone, password, privileged, avatar, version)
+            VALUES ($1, $2, $3, $4, $5, NULL, 1)
             "#,
         *id,
         format!("test-{phone}"),

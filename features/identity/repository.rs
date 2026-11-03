@@ -11,6 +11,7 @@ pub struct AccountListItem {
     pub name: String,
     pub phone: PhoneNumber,
     pub privileged: bool,
+    pub avatar: Option<String>,
 }
 
 pub struct AuthRow {
@@ -79,8 +80,8 @@ pub async fn create(pool: &PgPool, account: &Account) -> Result<Id> {
     let mut conn = pool.acquire().await?;
     let row = sqlx::query_scalar!(
         r#"
-        INSERT INTO accounts (id, name, phone, password, privileged, version)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO accounts (id, name, phone, password, privileged, avatar, version)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING id
         "#,
         *account.id,
@@ -88,6 +89,7 @@ pub async fn create(pool: &PgPool, account: &Account) -> Result<Id> {
         account.phone.as_str(),
         account.password.as_str(),
         account.privileged,
+        account.avatar,
         account.version
     )
     .fetch_one(&mut *conn)
@@ -100,8 +102,8 @@ pub async fn create_privileged_if_absent(pool: &PgPool, account: &Account) -> Re
     let mut conn = pool.acquire().await?;
     let row = sqlx::query_scalar!(
         r#"
-        INSERT INTO accounts (id, name, phone, password, privileged, version)
-        SELECT $1, $2, $3, $4, TRUE, $5
+        INSERT INTO accounts (id, name, phone, password, privileged, avatar, version)
+        SELECT $1, $2, $3, $4, TRUE, $5, $6
         WHERE NOT EXISTS (SELECT 1 FROM accounts WHERE privileged)
         RETURNING id
         "#,
@@ -109,6 +111,7 @@ pub async fn create_privileged_if_absent(pool: &PgPool, account: &Account) -> Re
         account.name,
         account.phone.as_str(),
         account.password.as_str(),
+        account.avatar,
         account.version
     )
     .fetch_optional(&mut *conn)
@@ -122,7 +125,7 @@ pub async fn find_optional_by_id(pool: &PgPool, id: Id) -> Result<Option<Account
     let row = sqlx::query_as!(
         AccountRow,
         r#"
-        SELECT id, name, phone, password, privileged, version
+        SELECT id, name, phone, password, privileged, avatar, version
         FROM accounts
         WHERE id = $1
         "#,
@@ -148,9 +151,9 @@ pub async fn update(pool: &PgPool, account: &Account) -> Result<Account> {
             UPDATE accounts
             SET name = $2, phone = $3, version = version + 1
             WHERE id = $1 AND version = $4
-            RETURNING id, name, phone, password, privileged, version
+            RETURNING id, name, phone, password, privileged, avatar, version
         )
-        SELECT id, name, phone, password, privileged, version
+        SELECT id, name, phone, password, privileged, avatar, version
         FROM updated
         "#,
         *account.id,
@@ -179,6 +182,30 @@ pub async fn update(pool: &PgPool, account: &Account) -> Result<Account> {
             .into())
         }
     }
+}
+
+/// 更新头像（`None` 清空）；同步 bump version。
+pub async fn update_avatar(pool: &PgPool, id: Id, avatar: Option<String>) -> Result<Account> {
+    let mut conn = pool.acquire().await?;
+    let row = sqlx::query_as!(
+        AccountRow,
+        r#"
+        WITH updated AS (
+            UPDATE accounts
+            SET avatar = $2, version = version + 1
+            WHERE id = $1
+            RETURNING id, name, phone, password, privileged, avatar, version
+        )
+        SELECT id, name, phone, password, privileged, avatar, version
+        FROM updated
+        "#,
+        *id,
+        avatar
+    )
+    .fetch_optional(&mut *conn)
+    .await?
+    .ok_or(IdentityError::AccountNotFound)?;
+    Ok(row.into_account())
 }
 
 pub async fn delete(pool: &PgPool, id: Id) -> Result<()> {
@@ -228,7 +255,7 @@ pub async fn search(
         sqlx::query_as!(
             AccountListRow,
             r#"
-            SELECT id, name, phone, privileged
+            SELECT id, name, phone, privileged, avatar
             FROM accounts
             WHERE ($1::bigint IS NULL OR id < $1)
               AND (phone ILIKE $2 ESCAPE '\' OR name ILIKE $2 ESCAPE '\')
@@ -245,7 +272,7 @@ pub async fn search(
         sqlx::query_as!(
             AccountListRow,
             r#"
-            SELECT id, name, phone, privileged
+            SELECT id, name, phone, privileged, avatar
             FROM accounts
             WHERE ($1::bigint IS NULL OR id < $1)
             ORDER BY id DESC
@@ -278,6 +305,7 @@ fn finalize_search(rows: Vec<AccountListRow>, limit: u64) -> (Vec<AccountListIte
             name: row.name,
             phone: PhoneNumber::new_unchecked(row.phone),
             privileged: row.privileged,
+            avatar: row.avatar,
         })
         .collect();
     (items, next_cursor)
@@ -289,6 +317,7 @@ struct AccountRow {
     phone: String,
     password: String,
     privileged: bool,
+    avatar: Option<String>,
     version: i64,
 }
 
@@ -297,6 +326,7 @@ struct AccountListRow {
     name: String,
     phone: String,
     privileged: bool,
+    avatar: Option<String>,
 }
 
 impl AccountRow {
@@ -307,6 +337,7 @@ impl AccountRow {
             phone: PhoneNumber::new_unchecked(self.phone),
             password: HashedPassword::new_unchecked(self.password),
             privileged: self.privileged,
+            avatar: self.avatar,
             version: self.version,
         }
     }
