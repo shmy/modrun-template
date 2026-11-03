@@ -38,7 +38,7 @@ jobs:
     env:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/modrun_template
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.98.1
         with:
           components: clippy, rustfmt
@@ -73,7 +73,7 @@ jobs:
     env:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/modrun_template
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.98.1
       - uses: Swatinem/rust-cache@v2
       - name: Migrate（业务 + apalis；空库用包内 .sqlx 冷启）
@@ -85,7 +85,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # advisories / bans / licenses / sources 四项，配置见 deny.toml
       - uses: EmbarkStudios/cargo-deny-action@v2
 
@@ -109,7 +109,7 @@ jobs:
     env:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/modrun_template
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.98.1
       - uses: Swatinem/rust-cache@v2
       - name: Migrate（业务 + apalis；空库用包内 .sqlx 冷启）
