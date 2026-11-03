@@ -110,17 +110,17 @@ just e2e                     # Hurl 端到端（服务需已启动）
 
 * **公开路由** `PublicRouter`：登录、刷新等
 * **受保护路由** `ProtectedRouter`：由 `http_server` 统一挂 `account_auth_middleware`
-* Handler 签名：`State<WebState>` + `ValidJson` / `ValidQuery` / `ValidPath`，返回 `JsonResponseType<T>`（健康探针除外，返回裸 `Json`）
+* Handler 签名：`State<AppState>`（`AppState = WebState` 别名）+ `ValidJson` / `ValidQuery` / `ValidPath`，返回 `JsonResponseType<T>`（健康探针除外，返回裸 `Json`）
 * **`JsonResponseType<T>`** = `Result<axum::Json<T>, WebError>`，定义于 `web_error`；成功用 `Ok(Json(data))`
 * 鉴权提取器：`http_auth::AuthedAccount`（`shared_contract::Id`）；`Authorization` scheme 大小写不敏感（`Bearer` / `bearer`）
-* 提取器：`http_extractors` 提供 `ValidJson`、`ValidQuery`、`ValidPath`、`ValidTypedMultipart`、`ClientIp`（`web_state` 仍 re-export 以兼容旧路径）
+* 提取器：落点在 `http_extractors`（`ValidJson`、`ValidQuery`、`ValidPath`、`ValidTypedMultipart`、`ClientIp`）；`web_state` 仅 re-export 以兼容旧路径
 * 会话模型：每个账号同时只有一把 access JTI 与一把 refresh；再次登录或 refresh 会使旧 access 立即 `access_token_revoked`；**已轮换 refresh 被重放**时吊销该账号全部会话（仍返回 `refresh_token_invalid`，不泄露细节）
 * `JWT_SECRET` 必填且 ≥32 字节；`APP_ENV=production` 时关闭 Scalar UI，且拒绝默认 `SEED_ADMIN_PASSWORD`
 * `OTLP_ENDPOINT` 为空则关闭 OTLP 导出；`OTLP_SAMPLER_RATIO` 默认 `0.1`（`(0,1]`）
 * `CORS_ORIGINS` 空则不加 CORS 层；非空为逗号分隔 Origin 白名单
 * **客户端 IP**：`http_server` 使用 `into_make_service_with_connect_info`；限流等取 `http_extractors::ClientIp`。仅当直连对端落在 `TRUSTED_PROXIES`（逗号分隔 IP/CIDR）内时，才解析 `X-Forwarded-For` / `X-Real-IP` 等头，否则忽略代理头防伪造。**解析从右往左跳过可信网段**，取第一个非可信地址——反代只在右侧追加而不会清洗左侧，取最左值可被客户端随意伪造（曾导致限流被完全绕过）。
-* **全局限流**（`axum-governor`）：按客户端 IP 令牌桶，`RATE_LIMIT_GLOBAL_*`；登录/刷新公开路由另有更紧的 `RATE_LIMIT_AUTH_*` 层（`infra/http_routing/rate_limit.rs`）。**健康探针（`/livez` `/readyz` `/healthz`）走 `ProbeRouter`，不经过全局限流**——否则秒级探测会耗尽令牌桶并触发 liveness 误判重启。
-* **限流取舍（安全）**：登录/刷新**仅按客户端 IP** 限流，**不做** phone / refresh digest 维度。原因：原 cache 双维度滑动窗口虽能防单号多 IP 爆破，但 phone 维度可被攻击者定向锁死（v6 评审）；去掉该维度后，攻击者换 IP 可对同一手机号持续试密码——需靠 `RATE_LIMIT_AUTH_*` 收紧或后续加递增延迟 / 独立 phone 策略补回
+* **全局限流**（`axum-governor`）：按客户端 IP 令牌桶，`RATE_LIMIT_GLOBAL_*`；登录/刷新公开路由另有更紧的 `RATE_LIMIT_AUTH_*` 层（`infra/http_routing/rate_limit.rs`，由 `identity::public_routes` 经 `provide_group_result` 挂载）。两层均 **fail-closed**：`auth_layer` / `global_layer` 构建失败则进程启动失败，禁止 silently 降级。**健康探针（`/livez` `/readyz` `/healthz`）走 `ProbeRouter`，不经过全局限流**——否则秒级探测会耗尽令牌桶并触发 liveness 误判重启。
+* **限流取舍（安全）**：登录/刷新**仅按客户端 IP** 限流，**不做** phone / refresh digest 维度。原因：原 cache 双维度滑动窗口虽能防单号多 IP 爆破，但 phone 维度可被攻击者定向锁死（v6 评审）；去掉该维度后，攻击者换 IP 可对同一手机号持续试密码——需靠 `RATE_LIMIT_AUTH_*` 收紧（配置错误会直接起不来）或后续加递增延迟 / 独立 phone 策略补回
 
 **关键：`l10n_middleware` 必须在 app 最外层。** `WebError::into_response()` 只写 extensions，需 locale 中间件转成 `ProblemDetails`；否则鉴权失败可能返回 200 空 body。
 
@@ -143,6 +143,7 @@ just e2e                     # Hurl 端到端（服务需已启动）
 | 路由类型 | 方法 | 路径 | endpoint 文件 |
 |----------|------|------|---------------|
 | 受保护 | `POST` | `/api/v1/files/images` | `file_upload_image.rs` |
+| 公开（仅 `blob-fs`） | `GET` | `/files/{*path}` | `file_serve_static.rs` |
 
 账号管理接口（`/api/v1/accounts*`）要求调用方 `privileged`，否则 `account_forbidden`（403）。更新带乐观锁：GET 返回 `version`，PATCH body 必须带当前 `version`；特权账号自身不可修改/删除/重置密码（`account_protected`，403）。改密、管理员重置与删除账号会先 `revoke_tokens` 再写库（删除在授权通过后、删行前吊销）；**DELETE 幂等**：目标不存在也返回 200 `deleted: true`。搜索使用 `shared_contract::CursorPagingQuery` / `CursorPagingResult` 做 keyset 游标分页，`q` 长度 3–64 字符。`MASTER=true`（默认）时启动 seed 管理员；库层 `accounts_one_privileged` 保证最多一个特权账号。
 
@@ -206,6 +207,8 @@ Workspace clippy（**禁止**，`just pre_commit` 含 `--all-targets`）：`unwr
 | apalis（`JobBus::try_new_*`） | 队列表：pg=`apalis.*`；sqlite=`Jobs`/`Workers`（库自带 migrate，不在本仓库 versions） |
 
 启动时 `persistence` 自动执行业务迁移；`job_queue` 初始化时也会跑 apalis setup（幂等）。**生产/CI 推荐先 `just sqlx_up`（业务 + apalis）再滚动发布 server**，避免多实例并发迁移，并保证编译期 sqlx 宏能看见 `apalis.jobs`。`accounts` 表另有 `remark` / `created_at` / `updated_at` 预留列，当前领域与 API 未暴露。
+
+**Migration squash 警告**：历史 `0002`/`0003`/`0004` 已并入 `0001_baseline`；模板/新库按 baseline 冷启即可。**已按旧 migration versions 跑过的库，不能无脑当兼容升级继续 `sqlx migrate`**（checksum / 版本号会对不上）。
 
 **SQL 查询**：优先 `sqlx::query!` / `query_as!` / `query_scalar!`；编译时需 `DATABASE_URL` 指向已迁移的库（本仓库不提交 `.sqlx`）。编 `apalis-postgres` 时库内还须已有 `apalis.jobs`：用 `just sqlx_up`（内部 `SQLX_OFFLINE=true`，借包内自带 `.sqlx` 冷启 migrator 并 setup）。勿在空库上直接 `cargo clippy --workspace --all-features`（会把 pg/sqlite 编进同一图，且缺 schema）；用 `just clippy_workspace` / `just pre_commit`。
 

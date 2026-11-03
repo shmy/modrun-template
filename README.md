@@ -78,9 +78,9 @@ just dev                     # 本地热重载：blob-fs、无 otlp（对象落 
 
 登录失败为 401（`account_invalid_credentials`）；账号不存在为 404；受保护账号为 403（`account_protected`）；手机号冲突与乐观锁冲突为 409。删除账号会吊销该账号令牌。
 
-全站按客户端 IP 做 `axum-governor` 令牌桶限流（`RATE_LIMIT_GLOBAL_*`）；登录/刷新路由另有更紧配额（`RATE_LIMIT_AUTH_*`）。超限返回 429 `rate_limited`。
+全站按客户端 IP 做 `axum-governor` 令牌桶限流（`RATE_LIMIT_GLOBAL_*`）；登录/刷新路由另有更紧配额（`RATE_LIMIT_AUTH_*`）。超限返回 429 `rate_limited`。两层均 fail-closed：限流层构建失败则进程启动失败，不会 silently 降级。
 
-**安全取舍**：不做 phone / refresh 维度限流（避免 cache 方案下对受害手机号的定向锁死）；代价是换 IP 后可对同一手机号持续试密码，详见 `AGENTS.md`。
+**安全取舍**：不做 phone / refresh 维度限流（避免 cache 方案下对受害手机号的定向锁死）；代价是换 IP 后可对同一手机号持续试密码——靠收紧 `RATE_LIMIT_AUTH_*` 补回，详见 `AGENTS.md`。
 
 ## 文件（file）
 
@@ -181,6 +181,8 @@ cargo run -p migrator
 ```bash
 sqlx migrate run --source infra/migration/versions --database-url "$DATABASE_URL"
 ```
+
+**Migration squash**：`0002`/`0003`/`0004` 已并入 `0001_baseline`；新库/模板冷启用 baseline 即可。**已按旧 versions 跑过的库不能无脑当兼容升级继续 `sqlx migrate`**。
 
 **SQL 查询**：优先使用 `sqlx::query!` / `query_as!` / `query_scalar!` 编译期校验；编译时需可访问的 `DATABASE_URL`（指向已跑过 `just sqlx_up` 的库，含 `apalis.jobs`）。本仓库不提交 `.sqlx`；空库冷启 migrator 时临时 `SQLX_OFFLINE=true`（借 `apalis-postgres` 包内缓存）。
 
