@@ -53,6 +53,8 @@ mod tests {
             IdentityError::AccountProtected,
             IdentityError::AccountForbidden,
             IdentityError::AccountVersionConflict,
+            IdentityError::AccountAvatarInvalid,
+            IdentityError::AccountAvatarNotFound,
             IdentityError::AccountSearchQTooShort,
             IdentityError::AccountSearchQTooLong,
             IdentityError::RefreshTokenInvalid,

@@ -18,6 +18,12 @@ pub enum IdentityError {
     AccountForbidden,
     #[error("account_version_conflict")]
     AccountVersionConflict,
+    /// 头像 path 不是合法 staging 对象（须先走上传接口）。
+    #[error("account_avatar_invalid")]
+    AccountAvatarInvalid,
+    /// 提交的 staging 对象不存在（未上传、已 GC 或 path 伪造）。
+    #[error("account_avatar_not_found")]
+    AccountAvatarNotFound,
     #[error("account_search_q_too_short")]
     AccountSearchQTooShort,
     #[error("account_search_q_too_long")]
@@ -49,6 +55,8 @@ impl L10nKeyedError for IdentityError {
             Self::AccountProtected => "account_protected",
             Self::AccountForbidden => "account_forbidden",
             Self::AccountVersionConflict => "account_version_conflict",
+            Self::AccountAvatarInvalid => "account_avatar_invalid",
+            Self::AccountAvatarNotFound => "account_avatar_not_found",
             Self::AccountSearchQTooShort => "account_search_q_too_short",
             Self::AccountSearchQTooLong => "account_search_q_too_long",
             Self::RefreshTokenInvalid => "refresh_token_invalid",

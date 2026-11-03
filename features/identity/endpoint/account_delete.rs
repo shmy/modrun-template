@@ -12,7 +12,7 @@ use web_state::{AppState, HasSession};
 
 use crate::dto::AccountIdPath;
 use crate::repository;
-use crate::shared::token_ops;
+use crate::shared::{avatar_ops, token_ops};
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct DeleteAccountResponse {
@@ -66,9 +66,14 @@ pub(crate) async fn execute(
     actor_id: Id,
     path: AccountIdPath,
 ) -> rootcause::Result<DeleteAccountResponse> {
-    repository::require_unprotected_target(pool, actor_id, path.id).await?;
+    let before = repository::require_unprotected_target(pool, actor_id, path.id).await?;
     token_ops::revoke_tokens(cache, token_helper, path.id).await?;
     repository::delete(pool, path.id).await?;
+    if let Some(account) = before
+        && let Some(avatar) = account.avatar.as_deref()
+    {
+        avatar_ops::detach_avatar(pool, avatar).await;
+    }
     Ok(DeleteAccountResponse {
         id: path.id,
         deleted: true,
@@ -79,7 +84,9 @@ pub(crate) async fn execute(
 mod tests {
     use super::*;
     use crate::tests;
+    use blob_kit::Blob;
     use migration::run_migrations;
+    use std::io::Cursor;
 
     #[sqlx::test]
     async fn test_delete_success(pool: sqlx::PgPool) {
@@ -101,6 +108,48 @@ mod tests {
         assert!(response.deleted);
         let err = repository::find_by_id(&pool, account_id).await.unwrap_err();
         assert!(err.to_string().contains("account_not_found"));
+    }
+
+    #[sqlx::test]
+    async fn test_delete_detaches_avatar(pool: sqlx::PgPool) {
+        run_migrations(&pool).await.expect("run migrations");
+        let cache = Cache::try_new_pg(pool.clone()).await.unwrap();
+        let token_helper = tests::test_token_helper();
+        let blob = Blob::new_for_test().await.expect("test blob");
+        let actor = tests::insert_privileged_account(&pool, "13900001803").await;
+        let account_id = tests::insert_test_account(&pool, "13900001804").await;
+        let staging = "staging/2026/01/del.webp";
+        blob.write(staging, Cursor::new(b"img"))
+            .await
+            .expect("write");
+        let path = avatar_ops::commit_avatar(&pool, &blob, staging)
+            .await
+            .expect("commit");
+        avatar_ops::attach_avatar(&pool, &path)
+            .await
+            .expect("attach");
+        repository::update_avatar(&pool, account_id, Some(path.clone()))
+            .await
+            .expect("set avatar");
+
+        execute(
+            &pool,
+            &cache,
+            &token_helper,
+            actor,
+            AccountIdPath { id: account_id },
+        )
+        .await
+        .unwrap();
+        let row = sqlx::query!(
+            r#"SELECT ref_count, tombstoned_at FROM blob_objects WHERE path = $1"#,
+            path
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(row.ref_count, 0);
+        assert!(row.tombstoned_at.is_some());
     }
 
     #[sqlx::test]

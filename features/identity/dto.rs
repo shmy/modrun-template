@@ -39,7 +39,8 @@ pub struct AccountPublic {
     #[schema(value_type = String, example = "13888888888")]
     pub phone: PhoneNumber,
     pub privileged: bool,
-    #[schema(example = "staging/2026/01/abc.webp")]
+    /// 已转正对象路径（非 staging；创建/更新时提交 staging，落库为正式 path）。
+    #[schema(example = "2026/01/abc.webp")]
     pub avatar: Option<String>,
 }
 
@@ -52,7 +53,7 @@ pub struct AccountDetail {
     #[schema(value_type = String, example = "13888888888")]
     pub phone: PhoneNumber,
     pub privileged: bool,
-    #[schema(example = "staging/2026/01/abc.webp")]
+    #[schema(example = "2026/01/abc.webp")]
     pub avatar: Option<String>,
     pub version: i64,
 }

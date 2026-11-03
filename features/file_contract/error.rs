@@ -10,6 +10,15 @@ pub enum FileError {
     /// 若映射成 500，攻击者用 12 字节伪造头即可污染错误率指标与告警。
     #[error("file_not_image")]
     Undecodable,
+    /// commit：非 staging / 不安全 path。
+    #[error("file_attachment_invalid")]
+    AttachmentInvalid,
+    /// commit：staging 对象不存在。
+    #[error("file_attachment_not_found")]
+    AttachmentNotFound,
+    /// attach/detach：path 未在 blob_objects 登记。
+    #[error("file_attachment_not_registered")]
+    AttachmentNotRegistered,
 }
 
 /// 域错误对应的 l10n key（与 thiserror `#[error]` 消息保持一致）。
@@ -22,6 +31,9 @@ impl L10nKeyedError for FileError {
         match self {
             Self::NotImage | Self::Undecodable => "file_not_image",
             Self::FileNameMissing => "file_name_missing",
+            Self::AttachmentInvalid => "file_attachment_invalid",
+            Self::AttachmentNotFound => "file_attachment_not_found",
+            Self::AttachmentNotRegistered => "file_attachment_not_registered",
         }
     }
 }
@@ -36,6 +48,9 @@ mod tests {
             FileError::NotImage,
             FileError::Undecodable,
             FileError::FileNameMissing,
+            FileError::AttachmentInvalid,
+            FileError::AttachmentNotFound,
+            FileError::AttachmentNotRegistered,
         ];
         for err in cases {
             assert_eq!(err.l10n_key(), err.to_string());

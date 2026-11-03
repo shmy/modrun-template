@@ -1,12 +1,14 @@
 //! 系统内务任务（全部落库为 Job；apalis 表即执行统计台账：pg=`apalis.jobs`，sqlite=`Jobs`）。
 //!
 //! - **清理（GC）**：`CacheGc` 清理缓存过期条目；`JobQueueGc` 清理超过保留期的终态 Job 行；
-//!   `BlobGc` 按月目录清理 `staging/` 暂存对象（保留天数见 `BLOB_STAGING_RETENTION_DAYS` 常量）。
+//!   `BlobGc` 按月目录清理 `staging/` 暂存对象（保留天数见 `BLOB_STAGING_RETENTION_DAYS` 常量）；
+//!   `AttachmentGc` 按 `blob_objects` 回收正式对象（pending commit / tombstone，见 `file::attachment`）。
 //! - 内务语义通过 `RETRIES = 0` 保留：失败不重试（下个周期再跑），终态 `Failed` 留痕。
 
 use blob_kit::Blob;
 use chrono::Days;
 use chrono::{Datelike, NaiveDate, Utc};
+use file::attachment;
 use job_queue::JobHandlers;
 use job_queue_kit::{DEFAULT_JOB_RETENTION_DAYS, Job};
 use rootcause::Result;
@@ -74,6 +76,30 @@ async fn handle_blob_gc(job: BlobGc, ctx: &WebState) -> Result<()> {
     Ok(())
 }
 
+/// 回收正式对象：pending commit（refcount=0 超时）或 tombstone 过期。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AttachmentGc {}
+
+impl Job for AttachmentGc {
+    const NAME: &'static str = "attachment_gc";
+    const RETRIES: usize = 0;
+}
+
+async fn handle_attachment_gc(_job: AttachmentGc, ctx: &WebState) -> Result<()> {
+    let candidates = attachment::list_gc_candidates(&ctx.pg).await?;
+    let mut deleted = 0u64;
+    for path in candidates {
+        match attachment::purge_object(&ctx.pg, &ctx.blob, &path).await {
+            Ok(()) => deleted += 1,
+            Err(err) => {
+                tracing::warn!(error = %err, path, "attachment gc purge failed; will retry next run");
+            }
+        }
+    }
+    log_gc_result(AttachmentGc::NAME, deleted);
+    Ok(())
+}
+
 /// 遍历 `staging/YYYY/MM/`：月份早于 cutoff 所属月初的整月目录，收集其下全部对象。
 /// 非标准路径（非 `staging/YYYY/MM`）一律跳过，避免误删。
 async fn collect_staging_expired(blob: &Blob, cutoff: NaiveDate) -> Result<Vec<String>> {
@@ -126,6 +152,9 @@ pub fn job_handlers() -> JobHandlers<WebState> {
     });
     handlers
         .register::<BlobGc, _>(|job, ctx| Box::pin(async move { handle_blob_gc(job, &ctx).await }));
+    handlers.register::<AttachmentGc, _>(|job, ctx| {
+        Box::pin(async move { handle_attachment_gc(job, &ctx).await })
+    });
     handlers
 }
 
@@ -139,6 +168,8 @@ pub fn sched_jobs() -> SchedJobs<WebState> {
             retention_days: BLOB_STAGING_RETENTION_DAYS,
         },
     );
+    // 紧随 BlobGc：先清 staging，再清正式对象登记表
+    jobs.scheduled("0 40 4 * * *", AttachmentGc {});
     jobs
 }
 

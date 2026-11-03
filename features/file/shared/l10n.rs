@@ -30,7 +30,13 @@ mod tests {
     #[test]
     fn file_error_and_ftl_keys_exist_in_bundles() {
         seal();
-        for err in [FileError::NotImage, FileError::FileNameMissing] {
+        for err in [
+            FileError::NotImage,
+            FileError::FileNameMissing,
+            FileError::AttachmentInvalid,
+            FileError::AttachmentNotFound,
+            FileError::AttachmentNotRegistered,
+        ] {
             assert_key(err.l10n_key());
         }
         // image_kit 错误 key 落在 shared.ftl（kit 层），此处确认仍可解析

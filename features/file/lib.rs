@@ -18,6 +18,8 @@ use utoipa_axum::{
     routes,
 };
 
+pub mod attachment;
+
 mod endpoint;
 mod shared;
 

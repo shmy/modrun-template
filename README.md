@@ -90,7 +90,7 @@ just dev                     # 本地热重载：blob-fs、无 otlp（对象落 
 |------|------|------|
 | `POST` | `/api/v1/files/images` | 上传图片（multipart，≤2MiB）。魔数检测 + 解码压缩为 WebP 后写入对象存储，返回 `staging/` 路径与公网 URL |
 
-`staging/` 为暂存区：MASTER 节点每日 04:30 由 `BlobGc` 按**月目录**清理过期对象（默认保留约 30 天；按月粒度，非按天精确，月初文件可能多留近一个月）。COS 可叠加生命周期规则、fs 可叠加外部 cron 作补充。上传失败返回 `file_not_image`（400）。
+`staging/` 为暂存区：MASTER 节点每日 04:30 由 `BlobGc` 按**月目录**清理过期对象（默认保留约 30 天；按月粒度，非按天精确，月初文件可能多留近一个月）。业务确认后经 `file::attachment::commit_staging` 转正并写入 `blob_objects`；解绑 tombstone 后由每日 04:40 `AttachmentGc` 回收正式对象（pending commit 24h / tombstone 7d）。COS 可叠加生命周期规则、fs 可叠加外部 cron 作补充。上传失败返回 `file_not_image`（400）。
 
 ## 探针
 
@@ -107,7 +107,7 @@ just dev                     # 本地热重载：blob-fs、无 otlp（对象落 
 ## 后台任务与调度
 
 * **Job 队列**（`job_queue_kit` 基于 [apalis](https://github.com/apalis-dev/apalis) 1.0 + `bin/server/job_worker.rs`）：点对点后台任务，pg / sqlite 双后端；失败按指数退避重试（上限 `RETRIES`）、超时记一次失败、终态 `Failed` 留表可审计（DLQ-in-table）；at-least-once（心跳孤儿恢复）。业务侧只需实现 `Job` + 注册 `JobHandlers`。
-* **定时任务**（`sched_kit` + `infra/scheduler`）：cron **只负责到点入队一个 Job**，实际执行由 job worker 承担；内务 GC（`CacheGc` / `JobQueueGc` / `BlobGc`）见 `bin/server/internal_jobs.rs`。仅 `MASTER=true` 节点注册 `scheduler.run`。
+* **定时任务**（`sched_kit` + `infra/scheduler`）：cron **只负责到点入队一个 Job**，实际执行由 job worker 承担；内务 GC（`CacheGc` / `JobQueueGc` / `BlobGc` / `AttachmentGc`）见 `bin/server/internal_jobs.rs`。仅 `MASTER=true` 节点注册 `scheduler.run`。
 * **对象存储**（`blob_kit`）：COS（默认）/ 本地 fs / 测试内存后端；流式写、批量删、presign（仅 COS）。
 
 ## 模块结构

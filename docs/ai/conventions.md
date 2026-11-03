@@ -12,7 +12,7 @@
 | `infra/` | 运行时接线 | 业务域逻辑 |
 | `features/{name}_contract/` | 跨域错误/读模型（纯 serde/thiserror） | utoipa/axum/sqlx/validify、其他 contract（除 `shared_contract`）、infra、runtime |
 | `features/shared_contract/` | 跨域值对象 + 游标分页（纯） | 同上 |
-| `features/{name}/` | 端点、repository、域 FTL、OpenAPI DTO | 依赖其他 feature runtime |
+| `features/{name}/` | 端点、repository、域 FTL、OpenAPI DTO | 依赖其他 feature runtime（例外：`identity`→`file` 附件登记；第二消费者再拆 `attachment`） |
 | `bin/server` | 组合根 | 业务逻辑 |
 
 `arch_test` 在 CI / `just pre_commit` / `just ai-check` 中强制执行上表（含 kit 禁 modrun/axum、contract 禁框架/DB）。另含生产 default 下 `shared_contract` 的 `cargo tree` golden（`just tree-server`）；失败=依赖图回潮，有意改动用 `just tree-server-bless`。

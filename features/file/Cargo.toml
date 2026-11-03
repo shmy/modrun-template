@@ -25,6 +25,7 @@ locale = { workspace = true }
 modrun = { workspace = true }
 rootcause = { workspace = true }
 serde = { workspace = true }
+sqlx = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
@@ -36,6 +37,7 @@ web_state = { workspace = true }
 [dev-dependencies]
 blob_kit = { workspace = true, features = ["test-utils"] }
 image = { workspace = true }
+migration = { workspace = true }
 tokio = { workspace = true }
 
 [lints]

@@ -102,7 +102,7 @@ just e2e                     # Hurl 端到端（服务需已启动）
 2. 基础设施 — `provide` / `provide_result_async` 注册单例（`PgPool`、`Cache`、`WebState`）
 3. HTTP 路由 — `provide_group` 贡献 `PublicRouter` / `ProtectedRouter`
 4. 长任务 — `task_with` 托管 HTTP 服务（bind/listen 需在 OnStart 期失败）；`task` 托管后台周期任务；`invoke` 挂启动钩子
-5. 定时任务 — cron 仅负责触发入队（`SchedJobs` + `ScheduledJob` 桥接）；实际执行走 job worker（`JobHandlers` + `provide_group`）。内务 GC（`CacheGc` / `JobQueueGc` / `BlobGc`）见 `bin/server/internal_jobs.rs`；仅 `MASTER=true` 时注册 `scheduler.run`（非 master 不 `lc.append`）
+5. 定时任务 — cron 仅负责触发入队（`SchedJobs` + `ScheduledJob` 桥接）；实际执行走 job worker（`JobHandlers` + `provide_group`）。内务 GC（`CacheGc` / `JobQueueGc` / `BlobGc` / `AttachmentGc`）见 `bin/server/internal_jobs.rs`；仅 `MASTER=true` 时注册 `scheduler.run`（非 master 不 `lc.append`）。`BlobGc` 只清 `staging/`；`AttachmentGc` 按 `blob_objects` 回收正式对象（pending commit / tombstone）
 
 模块注册顺序（依赖顺序）：`persistence` → `cache` → `blob` → `job_queue` → `web_state` → `server.wiring` → `job_worker` → `scheduler` → features → `http_server`
 

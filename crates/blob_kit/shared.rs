@@ -17,6 +17,62 @@ use std::fmt;
 use tokio::fs::File;
 use tokio_util::io::ReaderStream;
 
+use crate::error::BlobError;
+
+/// staging 暂存前缀；`BlobGc` 只清理此前缀下的对象。
+/// 须与 `file_contract::STORAGE_DIR_PREFIX`（上传 path 生成）保持同值。
+pub const STAGING_PREFIX: &str = "staging/";
+
+/// 去掉 `staging/` 前缀；非 staging 路径原样返回。与 [`BackendCore::fill_public_url`] 同属 path/URL 工具。
+#[inline]
+pub fn strip_staging_prefix(path: &str) -> &str {
+    path.strip_prefix(STAGING_PREFIX).unwrap_or(path)
+}
+
+/// 相对对象 path：非空、非绝对、无空段、无 `.` / `..`。
+#[inline]
+pub fn is_safe_object_path(path: &str) -> bool {
+    !path.is_empty()
+        && !path.starts_with('/')
+        && path
+            .split('/')
+            .all(|seg| !seg.is_empty() && seg != ".." && seg != ".")
+}
+
+/// 公网可读：安全 path，且为 `staging/YYYY/MM/<file>.<ext>` 或已转正 `YYYY/MM/<file>.<ext>`。
+pub fn is_public_readable_object_path(path: &str) -> bool {
+    if !is_safe_object_path(path) {
+        return false;
+    }
+    let rest = match path.strip_prefix(STAGING_PREFIX) {
+        Some(rest) => rest,
+        None => path,
+    };
+    is_dated_object_rest(rest)
+}
+
+fn is_dated_object_rest(rest: &str) -> bool {
+    let mut parts = rest.split('/');
+    let (Some(year), Some(month), Some(name), None) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
+        return false;
+    };
+    if year.len() != 4 || year.parse::<u16>().is_err() {
+        return false;
+    }
+    let Ok(m) = month.parse::<u32>() else {
+        return false;
+    };
+    if month.len() != 2 || !(1..=12).contains(&m) {
+        return false;
+    }
+    let Some((stem, ext)) = name.rsplit_once('.') else {
+        return false;
+    };
+    !stem.is_empty() && !ext.is_empty() && !stem.contains('.')
+}
+
 /// 后端共享内核：`opendal Operator` + 公网 `domain`。克隆共享。
 #[derive(Clone)]
 pub(crate) struct BackendCore {
@@ -110,6 +166,53 @@ impl BackendCore {
     pub(crate) async fn delete_many(&self, paths: Vec<String>) -> Result<()> {
         self.op.delete_iter(paths).await?;
         Ok(())
+    }
+
+    /// 移动对象：优先 `rename`；不支持时退化为读+写+删（三端行为对齐）。
+    #[tracing::instrument]
+    pub(crate) async fn mv(&self, from: &str, to: &str) -> Result<()> {
+        if from == to {
+            return Ok(());
+        }
+        match self.op.rename(from, to).await {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == ErrorKind::Unsupported => {
+                let Some(out) = self.read(from).await? else {
+                    return Err(BlobError::ObjectNotFound.into());
+                };
+                let _ = self.op.write(to, out.bytes).await?;
+                // 源删失败不回滚目标：正式 path 已在，交由调用方 / GC 处理残留 staging。
+                if let Err(err) = self.op.delete(from).await {
+                    tracing::warn!(
+                        error = %err,
+                        from,
+                        to,
+                        "mv: copied ok but delete source failed"
+                    );
+                }
+                Ok(())
+            }
+            Err(e) if e.kind() == ErrorKind::NotFound => Err(BlobError::ObjectNotFound.into()),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// 将 `staging/...` 挪到去掉前缀后的正式路径，返回目标 path。
+    #[tracing::instrument]
+    pub(crate) async fn mv_out_of_staging(&self, path: &str) -> Result<String> {
+        let from = self.strip_public_url_prefix(path.trim());
+        let Some(to) = from
+            .strip_prefix(STAGING_PREFIX)
+            .filter(|rest| !rest.is_empty())
+        else {
+            return Err(BlobError::NotStagingPath.into());
+        };
+        if !is_safe_object_path(from.as_ref()) || !is_safe_object_path(to) {
+            return Err(BlobError::UnsafeObjectPath.into());
+        }
+        let to = to.to_string();
+        self.mv(from.as_ref(), &to).await?;
+        Ok(to)
     }
 
     /// 预签名直传仅对象存储（Cos）支持；供 fs / 内存后端返回明确错误（内部 500，不进 locale）。

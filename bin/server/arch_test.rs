@@ -235,6 +235,10 @@ fn infra_crates_should_not_depend_on_feature_runtime_crates() {
     }
 }
 
+/// 有意跨域依赖（caller → callee）。附件登记挂在 `file`，identity 头像走其 API；
+/// 出现第二消费者再拆 `features/attachment`。
+const ALLOWED_FEATURE_RUNTIME_EDGES: &[(&str, &str)] = &[("identity", "file")];
+
 #[test]
 fn feature_crates_should_not_depend_on_other_feature_runtime_crates() {
     let all_runtime: Vec<(String, HashSet<String>)> = feature_runtime_crates();
@@ -243,6 +247,11 @@ fn feature_crates_should_not_depend_on_other_feature_runtime_crates() {
         let violations: Vec<_> = deps
             .iter()
             .filter(|d| *d != crate_name && runtime_names.contains(*d))
+            .filter(|d| {
+                !ALLOWED_FEATURE_RUNTIME_EDGES
+                    .iter()
+                    .any(|(from, to)| from == crate_name && to == *d)
+            })
             .collect();
         assert!(
             violations.is_empty(),

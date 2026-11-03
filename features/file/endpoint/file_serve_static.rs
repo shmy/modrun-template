@@ -1,7 +1,7 @@
 use axum::extract::{Path, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use file_contract::{STORAGE_DIR_PREFIX, staging_dir_date};
+use blob_kit::{STAGING_PREFIX, is_public_readable_object_path};
 use utoipa::ToSchema;
 use web_state::{AppState, HasBlob};
 
@@ -18,15 +18,15 @@ pub struct ImageAssetResponse {
 ///
 /// **安全取舍**：走 `PublicRouter`（`<img>` 不带 Authorization）。保密性依赖
 /// 对象名是不可猜测的 TempoId；路径一旦泄露即等同公开。因此：
-/// - 只放行 `staging/YYYY/MM/<file>` 形态（与上传写入格式一致）
-/// - 拒绝路径穿越 / 空段
-/// - staging 会被 GC，不做长期 immutable 缓存，缩短 CDN/浏览器残留窗口
+/// - 只放行上传形态 `staging/YYYY/MM/<file>` 与转正后 `YYYY/MM/<file>`
+/// - 拒绝路径穿越 / 空段 / 绝对路径 / 其它前缀
+/// - staging 会被 GC，缓存较短；已转正对象可稍长
 #[utoipa::path(
     get,
     path = "/files/{*path}",
     operation_id = "file_serve_static",
     tag = "file",
-    params(("path" = String, Path, description = "staging 下的对象路径，如 staging/2026/01/a.webp")),
+    params(("path" = String, Path, description = "staging/... 或已转正 YYYY/MM/...")),
     responses(
         (status = 200, description = "对象内容", body = ImageAssetResponse),
         (status = 404, description = "对象不存在"),
@@ -36,11 +36,16 @@ pub async fn handler(State(state): State<AppState>, Path(path): Path<String>) ->
     match read_object(&state, &path).await {
         Ok(Some(bytes)) => {
             let content_type = content_type_for(&path);
+            let cache_control = if path.starts_with(STAGING_PREFIX) {
+                "public, max-age=3600"
+            } else {
+                "public, max-age=31536000, immutable"
+            };
             (
                 StatusCode::OK,
                 [
                     (header::CONTENT_TYPE, content_type),
-                    (header::CACHE_CONTROL, "public, max-age=3600"),
+                    (header::CACHE_CONTROL, cache_control),
                     (
                         header::HeaderName::from_static("x-content-type-options"),
                         "nosniff",
@@ -59,39 +64,10 @@ pub async fn handler(State(state): State<AppState>, Path(path): Path<String>) ->
 }
 
 async fn read_object(state: &impl HasBlob, path: &str) -> rootcause::Result<Option<Vec<u8>>> {
-    if !is_allowed_staging_object_path(path) {
+    if !is_public_readable_object_path(path) {
         return Ok(None);
     }
     state.blob().read(path).await
-}
-
-/// 仅允许上传接口写出的形态：`staging/YYYY/MM/<filename>.<ext>`。
-fn is_allowed_staging_object_path(path: &str) -> bool {
-    if !path.starts_with(STORAGE_DIR_PREFIX) {
-        return false;
-    }
-    // 拒绝路径穿越与空段（`staging//x`、`staging/../x`）。
-    if path.split('/').any(|seg| seg == ".." || seg.is_empty()) {
-        return false;
-    }
-    // 必须能解析出月份目录，且恰好三段：年 / 月 / 文件名。
-    if staging_dir_date(path).is_none() {
-        return false;
-    }
-    let Some(rest) = path.strip_prefix(STORAGE_DIR_PREFIX) else {
-        return false;
-    };
-    let mut parts = rest.split('/');
-    let (Some(_year), Some(_month), Some(name), None) =
-        (parts.next(), parts.next(), parts.next(), parts.next())
-    else {
-        return false;
-    };
-    // 文件名须带扩展名，且不含隐藏/空名。
-    let Some((stem, ext)) = name.rsplit_once('.') else {
-        return false;
-    };
-    !stem.is_empty() && !ext.is_empty() && !stem.contains('.')
 }
 
 fn content_type_for(path: &str) -> &'static str {
@@ -139,6 +115,17 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn serves_promoted_object() {
+        let ctx = ctx().await;
+        ctx.0
+            .write("2026/01/a.webp", Cursor::new(b"img"))
+            .await
+            .expect("write");
+        let body = read_object(&ctx, "2026/01/a.webp").await.expect("read ok");
+        assert!(body.is_some(), "promoted object must be served");
+    }
+
+    #[tokio::test]
     async fn missing_object_is_none() {
         let ctx = ctx().await;
         let body = read_object(&ctx, "staging/2026/01/none.webp")
@@ -147,9 +134,9 @@ mod tests {
         assert!(body.is_none());
     }
 
-    /// 非 `staging/` 前缀不得通过公网读接口暴露。
+    /// 非上传/转正形态不得通过公网读接口暴露。
     #[tokio::test]
-    async fn non_staging_prefix_is_rejected() {
+    async fn non_whitelisted_prefix_is_rejected() {
         let ctx = ctx().await;
         ctx.0
             .write("secrets/a.txt", Cursor::new(b"x"))
@@ -160,7 +147,7 @@ mod tests {
                 .await
                 .expect("read ok")
                 .is_none(),
-            "non-staging objects must not be publicly readable"
+            "non-whitelisted objects must not be publicly readable"
         );
     }
 
@@ -176,6 +163,8 @@ mod tests {
             "staging/2026/01/",
             "staging/2026/13/a.webp",
             "staging/evil/01/a.webp",
+            "../2026/01/a.webp",
+            "/etc/passwd",
         ] {
             assert!(
                 read_object(&ctx, bad).await.expect("read ok").is_none(),
@@ -185,7 +174,8 @@ mod tests {
     }
 
     #[test]
-    fn allows_canonical_staging_object_path() {
-        assert!(is_allowed_staging_object_path("staging/2026/01/abc.webp"));
+    fn allows_canonical_paths() {
+        assert!(is_public_readable_object_path("staging/2026/01/abc.webp"));
+        assert!(is_public_readable_object_path("2026/01/abc.webp"));
     }
 }

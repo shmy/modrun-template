@@ -90,6 +90,16 @@ impl TestBlob {
     }
 
     #[tracing::instrument]
+    pub async fn mv(&self, from: &str, to: &str) -> Result<()> {
+        self.core.mv(from, to).await
+    }
+
+    #[tracing::instrument]
+    pub async fn mv_out_of_staging(&self, path: &str) -> Result<String> {
+        self.core.mv_out_of_staging(path).await
+    }
+
+    #[tracing::instrument]
     pub async fn list_children(&self, prefix: &str) -> Result<Vec<ListedEntry>> {
         self.core.list_children(prefix).await
     }

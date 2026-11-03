@@ -1,3 +1,4 @@
+pub mod avatar_ops;
 pub mod cache_error;
 pub mod domain_error;
 pub mod l10n;

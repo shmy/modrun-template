@@ -29,7 +29,12 @@ mod fs;
 mod memory;
 mod shared;
 
-pub use shared::ListedEntry;
+pub use shared::{
+    ListedEntry, STAGING_PREFIX, is_public_readable_object_path, is_safe_object_path,
+    strip_staging_prefix,
+};
+
+pub use error::BlobError;
 
 #[cfg(feature = "test-utils")]
 use crate::memory::TestBlob;
@@ -139,6 +144,12 @@ impl Blob {
         }
     }
 
+    /// 去掉 `staging/` 前缀；非 staging 原样返回（与 fill / strip URL 同组）。
+    #[inline]
+    pub fn strip_staging_prefix(path: &str) -> &str {
+        strip_staging_prefix(path)
+    }
+
     /// 流式写入，返回写入字节数。fs / test 后端与 cos 行为一致。
     #[tracing::instrument(skip(stream))]
     pub async fn write_stream(
@@ -183,6 +194,32 @@ impl Blob {
             Self::Fs(b) => b.delete_many(paths).await,
             #[cfg(feature = "test-utils")]
             Self::Test(b) => b.delete_many(paths).await,
+        }
+    }
+
+    /// 移动对象（`from` → `to`）。
+    #[tracing::instrument]
+    pub async fn mv(&self, from: &str, to: &str) -> Result<()> {
+        match self {
+            #[cfg(feature = "cos")]
+            Self::Cos(b) => b.mv(from, to).await,
+            #[cfg(feature = "fs")]
+            Self::Fs(b) => b.mv(from, to).await,
+            #[cfg(feature = "test-utils")]
+            Self::Test(b) => b.mv(from, to).await,
+        }
+    }
+
+    /// 将 `staging/...`（或对应公网 URL）挪到非 staging 路径，返回目标 path。
+    #[tracing::instrument]
+    pub async fn mv_out_of_staging(&self, path: &str) -> Result<String> {
+        match self {
+            #[cfg(feature = "cos")]
+            Self::Cos(b) => b.mv_out_of_staging(path).await,
+            #[cfg(feature = "fs")]
+            Self::Fs(b) => b.mv_out_of_staging(path).await,
+            #[cfg(feature = "test-utils")]
+            Self::Test(b) => b.mv_out_of_staging(path).await,
         }
     }
 
@@ -291,6 +328,49 @@ mod tests {
         );
 
         blob.delete_many(vec![path.to_string()]).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn mv_out_of_staging_strips_prefix() {
+        let blob = Blob::new_for_test().await.expect("create test blob");
+        let staging = "staging/2026/01/a.webp";
+        blob.write(staging, Cursor::new(b"img"))
+            .await
+            .expect("write");
+        let dest = blob.mv_out_of_staging(staging).await.expect("mv");
+        assert_eq!(dest, "2026/01/a.webp");
+        assert_eq!(Blob::strip_staging_prefix(staging), "2026/01/a.webp");
+        assert!(blob.read(&dest).await.unwrap().is_some());
+        assert!(blob.read(staging).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn mv_out_of_staging_rejects_traversal() {
+        let blob = Blob::new_for_test().await.expect("create test blob");
+        for bad in [
+            "staging/../secret.webp",
+            "staging/foo/../../x.webp",
+            "staging//x.webp",
+        ] {
+            let err = blob.mv_out_of_staging(bad).await.expect_err("reject");
+            assert!(
+                err.downcast_current_context::<BlobError>()
+                    .is_some_and(|e| matches!(
+                        e,
+                        BlobError::UnsafeObjectPath | BlobError::NotStagingPath
+                    )),
+                "unexpected error for {bad}: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn public_readable_allows_staging_and_promoted_dated_paths() {
+        assert!(is_public_readable_object_path("staging/2026/01/a.webp"));
+        assert!(is_public_readable_object_path("2026/01/a.webp"));
+        assert!(!is_public_readable_object_path("secrets/a.txt"));
+        assert!(!is_public_readable_object_path("staging/../x.webp"));
+        assert!(!is_public_readable_object_path("staging/evil/01/a.webp"));
     }
 
     #[tokio::test]

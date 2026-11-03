@@ -33,12 +33,6 @@ fn random_file_name() -> String {
     TempoId::generate().to_string()
 }
 
-pub fn strip_staging_prefix(path: String) -> String {
-    path.strip_prefix(STORAGE_DIR_PREFIX)
-        .map(|s| s.to_string())
-        .unwrap_or(path)
-}
-
 pub fn staging_dated_file_path(extension: &str) -> String {
     format!(
         "{}{}/{}.{}",
