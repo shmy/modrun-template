@@ -10,10 +10,10 @@ alwaysApply: false
 
 ## 必须
 
-- 业务列只存**正式 path**；入参 staging/URL 须经 `commit_staging`（先 INSERT `blob_objects` 再 mv）
-- 顺序：commit → 写业务行（并发带 version）→ attach → detach 旧 path
-- commit 后任意失败：`detach` 新 path；写行成功但 attach 失败：**回滚业务列** + detach
-- 删实体：detach 相关 path
+- 业务列只存**正式 path**；入参 staging/URL 须经 `commit_staging`（claim → INSERT → mv；失败恢复 claim）；上传须 `claim_staging`
+- 顺序：commit → **同事务**写业务行（并发带 version）+ attach + detach 旧 path
+- commit 后事务失败：`detach` 新 path；禁止错误响应却已占用唯一键
+- 删实体：**同事务**先 detach（缺登记可继续）再 DELETE；`revoke_tokens` 在 commit 之后（勿 `detach_best_effort`）
 - **新附件列**：实现 `*_paths_in_use`，并入 `bin/server/internal_jobs.rs` 的 AttachmentGc 安全网（与 `identity::avatar_paths_in_use` 合并）
 
 ## 选择

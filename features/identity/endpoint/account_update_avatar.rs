@@ -1,5 +1,6 @@
 use axum::{Json, extract::State};
 use blob_kit::Blob;
+use cache_kit::Cache;
 use http_auth::AuthedAccount;
 use http_extractors::{ValidJson, ValidPath};
 use identity_contract::IdentityError;
@@ -9,7 +10,7 @@ use sqlx::PgPool;
 use utoipa::ToSchema;
 use validify::Validify;
 use web_error::{JsonResponseType, ProblemDetails};
-use web_state::{AppState, HasBlob, HasPool};
+use web_state::{AppState, HasBlob, HasCache, HasPool};
 
 use crate::dto::{AccountDetail, AccountIdPath, validate_avatar};
 use crate::repository;
@@ -58,13 +59,22 @@ pub async fn handler(
     ValidPath(path): ValidPath<AccountIdPath>,
     ValidJson(request): ValidJson<UpdateAvatarRequest>,
 ) -> JsonResponseType<UpdateAvatarResponse> {
-    let response = execute(state.pool(), state.blob(), actor_id, path, request).await?;
+    let response = execute(
+        state.pool(),
+        state.blob(),
+        state.cache(),
+        actor_id,
+        path,
+        request,
+    )
+    .await?;
     Ok(Json(response))
 }
 
 pub(crate) async fn execute(
     pool: &PgPool,
     blob: &Blob,
+    cache: &Cache,
     actor_id: Id,
     path: AccountIdPath,
     request: UpdateAvatarRequest,
@@ -80,42 +90,45 @@ pub(crate) async fn execute(
         .map(str::trim)
         .filter(|s| !s.is_empty())
     {
-        Some(submitted) => Some(avatar_ops::commit_avatar(pool, blob, submitted).await?),
+        Some(submitted) => {
+            Some(avatar_ops::commit_avatar(pool, blob, cache, actor_id, submitted).await?)
+        }
         None => None,
     };
+    // 写行 + attach 新 + detach 旧 同事务：attach 失败整单回滚，不 bump version。
+    let mut tx = pool.begin().await?;
     let account =
-        match repository::update_avatar(pool, path.id, avatar.clone(), request.version).await {
+        match repository::update_avatar_tx(&mut tx, path.id, avatar.clone(), request.version).await
+        {
             Ok(account) => account,
             Err(err) => {
-                // 乐观锁等失败：tombstone 本轮已 commit 且不同于旧头像的对象。
+                drop(tx);
                 if let Some(new_path) = avatar.as_deref()
                     && Some(new_path) != old_avatar.as_deref()
                 {
-                    avatar_ops::detach_avatar(pool, new_path).await;
+                    avatar_ops::detach_avatar_best_effort(pool, new_path).await;
                 }
                 return Err(err);
             }
         };
     if let Some(new_path) = avatar.as_deref()
-        && let Err(err) = avatar_ops::attach_avatar(pool, new_path).await
+        && let Err(err) = avatar_ops::attach_avatar_tx(&mut tx, new_path).await
     {
-        // 落库已成功：回滚 avatar 列，避免死链；tombstone 新对象。
-        if let Err(rollback_err) = repository::set_avatar(pool, path.id, old_avatar.clone()).await {
-            tracing::warn!(
-                error = %rollback_err,
-                account_id = %path.id,
-                path = new_path,
-                "update_avatar: attach failed and avatar rollback failed"
-            );
-        }
-        avatar_ops::detach_avatar(pool, new_path).await;
+        drop(tx);
+        avatar_ops::detach_avatar_best_effort(pool, new_path).await;
         return Err(err);
     }
-    if let Some(old) = old_avatar
-        && Some(old.as_str()) != avatar.as_deref()
+    if let Some(old) = old_avatar.as_deref()
+        && Some(old) != avatar.as_deref()
+        && let Err(err) = avatar_ops::detach_avatar_tx(&mut tx, old).await
     {
-        avatar_ops::detach_avatar(pool, &old).await;
+        drop(tx);
+        if let Some(new_path) = avatar.as_deref() {
+            avatar_ops::detach_avatar_best_effort(pool, new_path).await;
+        }
+        return Err(err);
     }
+    tx.commit().await?;
     let detail = AccountDetail::from(account);
     Ok(UpdateAvatarResponse {
         id: detail.id,
@@ -128,24 +141,34 @@ pub(crate) async fn execute(
 mod tests {
     use super::*;
     use crate::tests;
+    use file::attachment;
     use migration::run_migrations;
     use std::io::Cursor;
+
+    async fn prep_staging(blob: &Blob, cache: &Cache, owner: Id, staging: &str) {
+        blob.write(staging, Cursor::new(b"img"))
+            .await
+            .expect("write staging");
+        attachment::claim_staging(cache, staging, owner)
+            .await
+            .expect("claim");
+    }
 
     #[sqlx::test]
     async fn test_update_avatar_set_and_clear(pool: sqlx::PgPool) {
         run_migrations(&pool).await.expect("run migrations");
         let blob = Blob::new_for_test().await.expect("test blob");
+        let cache = Cache::try_new_pg(pool.clone()).await.expect("cache");
         let actor = tests::insert_privileged_account(&pool, "13900001800").await;
         let account_id = tests::insert_test_account(&pool, "13900001801").await;
 
         let staging = "staging/2026/01/abc.webp";
-        blob.write(staging, Cursor::new(b"img"))
-            .await
-            .expect("write staging");
+        prep_staging(&blob, &cache, actor, staging).await;
 
         let set = execute(
             &pool,
             &blob,
+            &cache,
             actor,
             AccountIdPath { id: account_id },
             UpdateAvatarRequest {
@@ -164,6 +187,7 @@ mod tests {
         let cleared = execute(
             &pool,
             &blob,
+            &cache,
             actor,
             AccountIdPath { id: account_id },
             UpdateAvatarRequest {
@@ -175,7 +199,6 @@ mod tests {
         .unwrap();
         assert!(cleared.avatar.is_none());
         assert_eq!(cleared.version, 3);
-        // 正式对象仍在；登记表已 tombstone，交 AttachmentGc 回收
         let row = sqlx::query!(
             r#"SELECT ref_count, tombstoned_at FROM blob_objects WHERE path = $1"#,
             "2026/01/abc.webp"
@@ -192,17 +215,17 @@ mod tests {
     async fn test_update_avatar_version_conflict_tombstones_commit(pool: sqlx::PgPool) {
         run_migrations(&pool).await.expect("run migrations");
         let blob = Blob::new_for_test().await.expect("test blob");
+        let cache = Cache::try_new_pg(pool.clone()).await.expect("cache");
         let actor = tests::insert_privileged_account(&pool, "13900001840").await;
         let account_id = tests::insert_test_account(&pool, "13900001841").await;
 
         let staging = "staging/2026/01/conflict.webp";
-        blob.write(staging, Cursor::new(b"img"))
-            .await
-            .expect("write");
+        prep_staging(&blob, &cache, actor, staging).await;
 
         let err = execute(
             &pool,
             &blob,
+            &cache,
             actor,
             AccountIdPath { id: account_id },
             UpdateAvatarRequest {
@@ -222,16 +245,22 @@ mod tests {
         .unwrap();
         assert_eq!(row.ref_count, 0);
         assert!(row.tombstoned_at.is_some());
+        // 失败不得 bump version
+        let account = repository::find_by_id(&pool, account_id).await.unwrap();
+        assert_eq!(account.version, 1);
+        assert!(account.avatar.is_none());
     }
 
     #[sqlx::test]
     async fn test_update_avatar_protected(pool: sqlx::PgPool) {
         run_migrations(&pool).await.expect("run migrations");
         let blob = Blob::new_for_test().await.expect("test blob");
+        let cache = Cache::try_new_pg(pool.clone()).await.expect("cache");
         let actor = tests::insert_privileged_account(&pool, "13900001810").await;
         let err = execute(
             &pool,
             &blob,
+            &cache,
             actor,
             AccountIdPath { id: actor },
             UpdateAvatarRequest {
@@ -248,10 +277,12 @@ mod tests {
     async fn test_update_avatar_not_found(pool: sqlx::PgPool) {
         run_migrations(&pool).await.expect("run migrations");
         let blob = Blob::new_for_test().await.expect("test blob");
+        let cache = Cache::try_new_pg(pool.clone()).await.expect("cache");
         let actor = tests::insert_privileged_account(&pool, "13900001820").await;
         let err = execute(
             &pool,
             &blob,
+            &cache,
             actor,
             AccountIdPath {
                 id: Id::new_unchecked(999),
@@ -270,11 +301,13 @@ mod tests {
     async fn test_update_avatar_invalid_path(pool: sqlx::PgPool) {
         run_migrations(&pool).await.expect("run migrations");
         let blob = Blob::new_for_test().await.expect("test blob");
+        let cache = Cache::try_new_pg(pool.clone()).await.expect("cache");
         let actor = tests::insert_privileged_account(&pool, "13900001830").await;
         let account_id = tests::insert_test_account(&pool, "13900001831").await;
         let err = execute(
             &pool,
             &blob,
+            &cache,
             actor,
             AccountIdPath { id: account_id },
             UpdateAvatarRequest {

@@ -124,7 +124,7 @@ pub struct LoginRequest {
     #[validate(custom(validate_phone_number))]
     #[schema(value_type = String, example = "13888888888")]
     pub phone: String,
-    #[schema(value_type = String, example = "admin123!")]
+    #[schema(value_type = String, example = "P@ssw0rd1")]
     #[validify]
     pub password: Password,
 }

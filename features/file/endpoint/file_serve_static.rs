@@ -12,6 +12,11 @@ pub struct ImageAssetResponse {
     pub bytes: Vec<u8>,
 }
 
+/// `blob-fs` 公网回源（`BLOB_FILE_DOMAIN`）。COS 等远端后端不注册本路由。
+///
+/// **安全模型**（细则见 `docs/ai/conventions.md`「附件引用」→ 公网读）：
+/// 走 `PublicRouter`（`<img>` 不带 Authorization）；保密性依赖不可猜测对象名。
+/// 仅放行 `staging/YYYY/MM/...` 与转正后 `YYYY/MM/...`（`is_public_readable_object_path`）。
 #[utoipa::path(
     get,
     path = "/files/{*path}",

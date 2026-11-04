@@ -5,17 +5,22 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use axum::extract::State;
 use axum_typed_multipart::{FieldData, TryFromMultipart};
 use blob_kit::Blob;
+use cache_kit::Cache;
 use file_contract::error::FileError;
 use file_contract::{ensure_image_reader, staging_dated_file_path};
+use http_auth::AuthedAccount;
 use http_extractors::ValidTypedMultipart;
 use image_kit::compress::{CompressOptions, ImageKit};
 use image_kit::error::ImageKitError;
 use serde::Serialize;
+use shared_contract::Id;
 use tempfile::NamedTempFile;
 use tokio::task::spawn_blocking;
 use utoipa::ToSchema;
 use web_error::JsonResponseType;
-use web_state::{AppState, HasBlob};
+use web_state::{AppState, HasBlob, HasCache};
+
+use crate::attachment;
 
 #[derive(TryFromMultipart, ToSchema)]
 pub(crate) struct UploadImageMultipart {
@@ -41,16 +46,19 @@ pub(crate) struct UploadImageResponse {
 )]
 #[tracing::instrument(skip(state, multipart))]
 pub(crate) async fn handler(
+    AuthedAccount(actor_id): AuthedAccount,
     State(state): State<AppState>,
     ValidTypedMultipart(multipart): ValidTypedMultipart<UploadImageMultipart>,
 ) -> JsonResponseType<UploadImageResponse> {
-    let response = execute(state.blob().clone(), multipart).await?;
+    let response = execute(state.blob().clone(), state.cache(), actor_id, multipart).await?;
     Ok(axum::Json(response))
 }
 
 #[tracing::instrument(skip_all)]
 pub(crate) async fn execute(
     blob: Blob,
+    cache: &Cache,
+    actor_id: Id,
     multipart: UploadImageMultipart,
 ) -> rootcause::Result<UploadImageResponse> {
     let UploadImageMultipart { image } = multipart;
@@ -86,6 +94,8 @@ pub(crate) async fn execute(
     drop(guard);
     let path = staging_dated_file_path("webp");
     blob.write(&path, Cursor::new(compressed.bytes)).await?;
+    // 绑定上传者：commit_staging 时校验，防止他人抢转正。
+    attachment::claim_staging(cache, &path, actor_id).await?;
     let url = blob.fill_public_url(&path).to_string();
     Ok(UploadImageResponse { path, url })
 }
@@ -156,32 +166,50 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn upload_image_writes_webp_to_blob() {
+    #[sqlx::test]
+    async fn upload_image_writes_webp_and_claims_owner(pool: sqlx::PgPool) {
         let blob = Blob::new_for_test().await.expect("test blob");
+        let cache = Cache::try_new_pg(pool).await.expect("cache");
         let png = create_png_fixture();
         let multipart = multipart_with_bytes(png, Some("photo.png".to_string()));
+        let owner = Id::new_unchecked(1);
 
-        let response = execute(blob.clone(), multipart).await.expect("upload");
+        let response = execute(blob.clone(), &cache, owner, multipart)
+            .await
+            .expect("upload");
 
         assert!(response.path.starts_with("staging/"));
         assert!(response.path.ends_with(".webp"));
         assert!(response.url.contains(&response.path));
+        assert!(blob.read(&response.path).await.unwrap().is_some());
+        // 归属已绑定：非上传者不可消费 claim
+        attachment::consume_staging_claim(&cache, &response.path, Id::new_unchecked(2))
+            .await
+            .expect_err("foreign");
+        attachment::consume_staging_claim(&cache, &response.path, owner)
+            .await
+            .expect("owner");
     }
 
-    #[tokio::test]
-    async fn missing_file_name_returns_error() {
+    #[sqlx::test]
+    async fn missing_file_name_returns_error(pool: sqlx::PgPool) {
         let blob = Blob::new_for_test().await.expect("test blob");
+        let cache = Cache::try_new_pg(pool).await.expect("cache");
         let multipart = multipart_with_bytes(create_png_fixture(), None);
-        let err = execute(blob, multipart).await.expect_err("should fail");
+        let err = execute(blob, &cache, Id::new_unchecked(1), multipart)
+            .await
+            .expect_err("should fail");
         assert!(err.downcast_current_context::<FileError>().is_some());
     }
 
-    #[tokio::test]
-    async fn non_image_content_returns_error() {
+    #[sqlx::test]
+    async fn non_image_content_returns_error(pool: sqlx::PgPool) {
         let blob = Blob::new_for_test().await.expect("test blob");
+        let cache = Cache::try_new_pg(pool).await.expect("cache");
         let multipart = multipart_with_bytes(b"plain text".to_vec(), Some("fake.png".to_string()));
-        let err = execute(blob, multipart).await.expect_err("should fail");
+        let err = execute(blob, &cache, Id::new_unchecked(1), multipart)
+            .await
+            .expect_err("should fail");
         assert!(err.downcast_current_context::<FileError>().is_some());
     }
 
@@ -190,15 +218,18 @@ mod tests {
     /// 回归保护：修复前 `ensure_image_reader` 只查魔数，解码失败时抛出的是
     /// `ImageKitError`（非 `FileError`），domain mapper 认不出 → 500。
     /// 攻击者用 12 字节伪造头即可把请求变成 500 并污染错误率指标。
-    #[tokio::test]
-    async fn undecodable_image_with_valid_magic_is_domain_error() {
+    #[sqlx::test]
+    async fn undecodable_image_with_valid_magic_is_domain_error(pool: sqlx::PgPool) {
         let blob = Blob::new_for_test().await.expect("test blob");
+        let cache = Cache::try_new_pg(pool).await.expect("cache");
         // JPEG XL 魔数（FF 0A）+ 垃圾数据：`ensure_image_reader` 放行，解码必失败。
         let mut fake_jxl = vec![0xFF, 0x0A];
         fake_jxl.extend_from_slice(&[0u8; 200]);
         let multipart = multipart_with_bytes(fake_jxl, Some("x.jxl".to_string()));
 
-        let err = execute(blob, multipart).await.expect_err("should fail");
+        let err = execute(blob, &cache, Id::new_unchecked(1), multipart)
+            .await
+            .expect_err("should fail");
         assert!(
             err.downcast_current_context::<FileError>().is_some(),
             "undecodable image must surface as FileError (400), not an internal error (500): {err}"
@@ -206,14 +237,17 @@ mod tests {
     }
 
     /// PNG 魔数 + 截断内容，同样是客户端输入问题。
-    #[tokio::test]
-    async fn truncated_png_is_domain_error() {
+    #[sqlx::test]
+    async fn truncated_png_is_domain_error(pool: sqlx::PgPool) {
         let blob = Blob::new_for_test().await.expect("test blob");
+        let cache = Cache::try_new_pg(pool).await.expect("cache");
         let mut truncated = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
         truncated.extend_from_slice(&[0u8; 100]);
         let multipart = multipart_with_bytes(truncated, Some("x.png".to_string()));
 
-        let err = execute(blob, multipart).await.expect_err("should fail");
+        let err = execute(blob, &cache, Id::new_unchecked(1), multipart)
+            .await
+            .expect_err("should fail");
         assert!(
             err.downcast_current_context::<FileError>().is_some(),
             "truncated png must surface as FileError (400): {err}"

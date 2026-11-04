@@ -2,6 +2,7 @@ use crate::entity::Account;
 use crate::value_object::{HashedPassword, Password};
 use axum::{Json, extract::State};
 use blob_kit::Blob;
+use cache_kit::Cache;
 use http_auth::AuthedAccount;
 use http_extractors::ValidJson;
 use serde::{Deserialize, Serialize};
@@ -10,7 +11,7 @@ use sqlx::PgPool;
 use utoipa::ToSchema;
 use validify::Validify;
 use web_error::{JsonResponseType, ProblemDetails};
-use web_state::{AppState, HasBlob, HasPool};
+use web_state::{AppState, HasBlob, HasCache, HasPool};
 
 use crate::dto::{validate_avatar, validate_phone_number};
 use crate::repository;
@@ -68,13 +69,14 @@ pub async fn handler(
     State(state): State<AppState>,
     ValidJson(request): ValidJson<CreateAccountRequest>,
 ) -> JsonResponseType<CreateAccountResponse> {
-    let response = execute(state.pool(), state.blob(), actor_id, request).await?;
+    let response = execute(state.pool(), state.blob(), state.cache(), actor_id, request).await?;
     Ok(Json(response))
 }
 
 pub(crate) async fn execute(
     pool: &PgPool,
     blob: &Blob,
+    cache: &Cache,
     actor_id: Id,
     request: CreateAccountRequest,
 ) -> rootcause::Result<CreateAccountResponse> {
@@ -96,7 +98,9 @@ pub(crate) async fn execute(
         .map(str::trim)
         .filter(|s| !s.is_empty())
     {
-        Some(submitted) => Some(avatar_ops::commit_avatar(pool, blob, submitted).await?),
+        Some(submitted) => {
+            Some(avatar_ops::commit_avatar(pool, blob, cache, actor_id, submitted).await?)
+        }
         None => None,
     };
     let account = Account {
@@ -108,28 +112,23 @@ pub(crate) async fn execute(
         avatar: avatar.clone(),
         version: 1,
     };
-    if let Err(err) = repository::create(pool, &account).await {
-        // 任意落库失败：tombstone 本次 commit，交 AttachmentGc。
+    // create + attach 同事务：attach 失败则账号回滚，禁止「错误响应 + 已占手机号」。
+    let mut tx = pool.begin().await?;
+    if let Err(err) = repository::create_tx(&mut tx, &account).await {
+        drop(tx);
         if let Some(path) = avatar.as_deref() {
-            avatar_ops::detach_avatar(pool, path).await;
+            avatar_ops::detach_avatar_best_effort(pool, path).await;
         }
         return Err(err);
     }
     if let Some(path) = avatar.as_deref()
-        && let Err(err) = avatar_ops::attach_avatar(pool, path).await
+        && let Err(err) = avatar_ops::attach_avatar_tx(&mut tx, path).await
     {
-        // 账号已存在且 avatar 列已写：清空避免死链，并 tombstone 对象。
-        if let Err(clear_err) = repository::set_avatar(pool, id, None).await {
-            tracing::warn!(
-                error = %clear_err,
-                account_id = %id,
-                path,
-                "create: attach failed and avatar clear failed"
-            );
-        }
-        avatar_ops::detach_avatar(pool, path).await;
+        drop(tx);
+        avatar_ops::detach_avatar_best_effort(pool, path).await;
         return Err(err);
     }
+    tx.commit().await?;
     Ok(CreateAccountResponse {
         id,
         name: account.name,
@@ -142,21 +141,31 @@ mod tests {
     use super::*;
     use crate::tests;
     use crate::value_object::Password;
+    use file::attachment;
     use migration::run_migrations;
     use std::io::Cursor;
+
+    async fn prep_staging(blob: &Blob, cache: &Cache, owner: Id, staging: &str) {
+        blob.write(staging, Cursor::new(b"img"))
+            .await
+            .expect("write staging");
+        attachment::claim_staging(cache, staging, owner)
+            .await
+            .expect("claim");
+    }
 
     #[sqlx::test]
     async fn test_create_success(pool: sqlx::PgPool) {
         run_migrations(&pool).await.expect("run migrations");
         let blob = Blob::new_for_test().await.expect("test blob");
+        let cache = Cache::try_new_pg(pool.clone()).await.expect("cache");
         let staging = "staging/2026/01/abc.webp";
-        blob.write(staging, Cursor::new(b"img"))
-            .await
-            .expect("write staging");
         let actor = tests::insert_privileged_account(&pool, "13900001200").await;
+        prep_staging(&blob, &cache, actor, staging).await;
         let response = execute(
             &pool,
             &blob,
+            &cache,
             actor,
             CreateAccountRequest {
                 name: "Tom".to_string(),
@@ -186,10 +195,12 @@ mod tests {
     async fn test_create_without_avatar(pool: sqlx::PgPool) {
         run_migrations(&pool).await.expect("run migrations");
         let blob = Blob::new_for_test().await.expect("test blob");
+        let cache = Cache::try_new_pg(pool.clone()).await.expect("cache");
         let actor = tests::insert_privileged_account(&pool, "13900001202").await;
         let response = execute(
             &pool,
             &blob,
+            &cache,
             actor,
             CreateAccountRequest {
                 name: "NoAvatar".to_string(),
@@ -207,10 +218,12 @@ mod tests {
     async fn test_create_forbidden_for_non_privileged(pool: sqlx::PgPool) {
         run_migrations(&pool).await.expect("run migrations");
         let blob = Blob::new_for_test().await.expect("test blob");
+        let cache = Cache::try_new_pg(pool.clone()).await.expect("cache");
         let actor = tests::insert_test_account(&pool, "13900001210").await;
         let err = execute(
             &pool,
             &blob,
+            &cache,
             actor,
             CreateAccountRequest {
                 name: "Tom".to_string(),
@@ -228,11 +241,13 @@ mod tests {
     async fn test_create_duplicated_phone(pool: sqlx::PgPool) {
         run_migrations(&pool).await.expect("run migrations");
         let blob = Blob::new_for_test().await.expect("test blob");
+        let cache = Cache::try_new_pg(pool.clone()).await.expect("cache");
         let actor = tests::insert_privileged_account(&pool, "13900001220").await;
         tests::insert_test_account(&pool, "13900001221").await;
         let err = execute(
             &pool,
             &blob,
+            &cache,
             actor,
             CreateAccountRequest {
                 name: "Tom".to_string(),
@@ -250,35 +265,51 @@ mod tests {
     async fn test_create_avatar_missing_object(pool: sqlx::PgPool) {
         run_migrations(&pool).await.expect("run migrations");
         let blob = Blob::new_for_test().await.expect("test blob");
+        let cache = Cache::try_new_pg(pool.clone()).await.expect("cache");
         let actor = tests::insert_privileged_account(&pool, "13900001230").await;
+        let staging = "staging/2026/01/missing.webp";
+        attachment::claim_staging(&cache, staging, actor)
+            .await
+            .expect("claim");
         let err = execute(
             &pool,
             &blob,
+            &cache,
             actor,
             CreateAccountRequest {
                 name: "Tom".to_string(),
                 phone: "13900001231".to_string(),
                 password: Password::new_unchecked("admin123!".to_string()),
-                avatar: Some("staging/2026/01/missing.webp".to_string()),
+                avatar: Some(staging.to_string()),
             },
         )
         .await
         .unwrap_err();
         assert!(err.to_string().contains("account_avatar_not_found"));
+        // 半成功防护：手机号未占用
+        assert!(
+            repository::find_auth_by_phone(
+                &pool,
+                &PhoneNumber::new_unchecked("13900001231".into())
+            )
+            .await
+            .unwrap()
+            .is_none()
+        );
     }
 
-    /// create UNIQUE 失败后对已 commit path detach，应进入 tombstone（与 execute 补偿一致）。
+    /// 模拟 execute 在 commit 之后、create_tx UNIQUE 失败：同事务回滚 + best-effort detach。
     #[sqlx::test]
-    async fn test_create_failure_detaches_committed_avatar(pool: sqlx::PgPool) {
+    async fn test_create_tx_unique_failure_detaches_committed_avatar(pool: sqlx::PgPool) {
         run_migrations(&pool).await.expect("run migrations");
         let blob = Blob::new_for_test().await.expect("test blob");
+        let cache = Cache::try_new_pg(pool.clone()).await.expect("cache");
         tests::insert_test_account(&pool, "13900001241").await;
+        let owner = Id::new_unchecked(1);
 
         let staging = "staging/2026/01/dup.webp";
-        blob.write(staging, Cursor::new(b"img"))
-            .await
-            .expect("write");
-        let path = avatar_ops::commit_avatar(&pool, &blob, staging)
+        prep_staging(&blob, &cache, owner, staging).await;
+        let path = avatar_ops::commit_avatar(&pool, &blob, &cache, owner, staging)
             .await
             .expect("commit");
         let account = Account {
@@ -292,10 +323,14 @@ mod tests {
             avatar: Some(path.clone()),
             version: 1,
         };
-        let err = repository::create(&pool, &account).await.expect_err("dup");
+        // 与 execute 失败分支同序：create_tx 失败 → drop tx → detach_best_effort
+        let mut tx = pool.begin().await.expect("begin");
+        let err = repository::create_tx(&mut tx, &account)
+            .await
+            .expect_err("dup");
         assert!(err.to_string().contains("account_duplicated"));
-        // 与 execute 中 create 失败分支相同
-        avatar_ops::detach_avatar(&pool, &path).await;
+        drop(tx);
+        avatar_ops::detach_avatar_best_effort(&pool, &path).await;
         let row = sqlx::query!(
             r#"SELECT ref_count, tombstoned_at FROM blob_objects WHERE path = $1"#,
             path
@@ -305,5 +340,64 @@ mod tests {
         .unwrap();
         assert_eq!(row.ref_count, 0);
         assert!(row.tombstoned_at.is_some());
+        assert!(
+            repository::find_auth_by_phone(
+                &pool,
+                &PhoneNumber::new_unchecked("13900001241".into())
+            )
+            .await
+            .unwrap()
+            .is_some(),
+            "pre-existing account must remain; no half-created row"
+        );
+    }
+
+    /// attach 失败时 create 事务回滚：手机号未占用、新 path 已 tombstone。
+    #[sqlx::test]
+    async fn test_create_attach_failure_rolls_back_account(pool: sqlx::PgPool) {
+        run_migrations(&pool).await.expect("run migrations");
+        let blob = Blob::new_for_test().await.expect("test blob");
+        let cache = Cache::try_new_pg(pool.clone()).await.expect("cache");
+        let actor = tests::insert_privileged_account(&pool, "13900001250").await;
+        let staging = "staging/2026/01/attachfail.webp";
+        prep_staging(&blob, &cache, actor, staging).await;
+        let path = avatar_ops::commit_avatar(&pool, &blob, &cache, actor, staging)
+            .await
+            .expect("commit");
+        // 拆掉登记，使 attach_tx 失败（模拟 commit 后登记异常）
+        sqlx::query!("DELETE FROM blob_objects WHERE path = $1", path)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let phone = "13900001251";
+        let account = Account {
+            id: Id::default(),
+            name: "AttachFail".into(),
+            phone: PhoneNumber::new_unchecked(phone.into()),
+            password: HashedPassword::try_new(&Password::new_unchecked("admin123!".into()))
+                .await
+                .unwrap(),
+            privileged: false,
+            avatar: Some(path.clone()),
+            version: 1,
+        };
+        let mut tx = pool.begin().await.expect("begin");
+        repository::create_tx(&mut tx, &account)
+            .await
+            .expect("create");
+        let err = avatar_ops::attach_avatar_tx(&mut tx, &path)
+            .await
+            .expect_err("attach");
+        drop(tx);
+        avatar_ops::detach_avatar_best_effort(&pool, &path).await;
+        assert!(err.to_string().contains("file_attachment_not_registered"));
+        assert!(
+            repository::find_auth_by_phone(&pool, &PhoneNumber::new_unchecked(phone.into()))
+                .await
+                .unwrap()
+                .is_none(),
+            "account must roll back when attach fails in same tx"
+        );
     }
 }

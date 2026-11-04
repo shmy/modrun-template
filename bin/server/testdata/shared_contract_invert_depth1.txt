@@ -1,3 +1,4 @@
 shared_contract
+|-- file
 |-- http_auth
 `-- identity

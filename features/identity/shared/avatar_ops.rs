@@ -3,26 +3,54 @@
 use std::collections::HashSet;
 
 use blob_kit::Blob;
+use cache_kit::Cache;
 use file::attachment;
 use file_contract::FileError;
 use identity_contract::IdentityError;
 use rootcause::Result;
-use sqlx::PgPool;
+use shared_contract::Id;
+use sqlx::{PgPool, Postgres, Transaction};
 
 use crate::repository;
 
-/// staging / 公网 URL → 正式 path 并登记（ref_count=0）。
-pub async fn commit_avatar(pool: &PgPool, blob: &Blob, submitted: &str) -> Result<String> {
-    attachment::commit_staging(pool, blob, submitted)
+/// staging / 公网 URL → 正式 path 并登记（ref_count=0）；须为上传者本人。
+pub async fn commit_avatar(
+    pool: &PgPool,
+    blob: &Blob,
+    cache: &Cache,
+    actor_id: Id,
+    submitted: &str,
+) -> Result<String> {
+    attachment::commit_staging(pool, blob, cache, actor_id, submitted)
         .await
         .map_err(map_file_err)
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub async fn attach_avatar(pool: &PgPool, path: &str) -> Result<()> {
     attachment::attach(pool, path).await.map_err(map_file_err)
 }
 
-pub async fn detach_avatar(pool: &PgPool, path: &str) {
+pub async fn attach_avatar_tx(tx: &mut Transaction<'_, Postgres>, path: &str) -> Result<()> {
+    attachment::attach_tx(tx, path).await.map_err(map_file_err)
+}
+
+pub async fn detach_avatar_tx(tx: &mut Transaction<'_, Postgres>, path: &str) -> Result<()> {
+    attachment::detach_tx(tx, path).await.map_err(map_file_err)
+}
+
+/// 删号：未登记 path 不阻断 DELETE（脏数据）；其它错误仍失败。
+pub async fn detach_avatar_tx_for_delete(
+    tx: &mut Transaction<'_, Postgres>,
+    path: &str,
+) -> Result<()> {
+    attachment::detach_tx_allowing_missing(tx, path)
+        .await
+        .map_err(map_file_err)
+}
+
+/// 补偿路径（commit 后业务未落成）：失败只 warn，避免掩盖主错误。
+pub async fn detach_avatar_best_effort(pool: &PgPool, path: &str) {
     attachment::detach_best_effort(pool, path).await;
 }
 
@@ -52,12 +80,19 @@ mod tests {
     async fn commit_and_attach_roundtrip(pool: sqlx::PgPool) {
         run_migrations(&pool).await.expect("migrate");
         let blob = Blob::new_for_test().await.expect("blob");
+        let cache = Cache::try_new_pg(pool.clone()).await.expect("cache");
+        let owner = Id::new_unchecked(1);
         let staging = "staging/2026/01/avatar.webp";
         blob.write(staging, Cursor::new(b"img"))
             .await
             .expect("write");
+        attachment::claim_staging(&cache, staging, owner)
+            .await
+            .expect("claim");
 
-        let path = commit_avatar(&pool, &blob, staging).await.expect("commit");
+        let path = commit_avatar(&pool, &blob, &cache, owner, staging)
+            .await
+            .expect("commit");
         assert_eq!(path, "2026/01/avatar.webp");
         attach_avatar(&pool, &path).await.expect("attach");
         let rc: i32 = sqlx::query_scalar!(
@@ -74,9 +109,27 @@ mod tests {
     async fn commit_rejects_non_staging(pool: sqlx::PgPool) {
         run_migrations(&pool).await.expect("migrate");
         let blob = Blob::new_for_test().await.expect("blob");
-        let err = commit_avatar(&pool, &blob, "2026/01/already.webp")
-            .await
-            .expect_err("reject");
+        let cache = Cache::try_new_pg(pool.clone()).await.expect("cache");
+        let err = commit_avatar(
+            &pool,
+            &blob,
+            &cache,
+            Id::new_unchecked(1),
+            "2026/01/already.webp",
+        )
+        .await
+        .expect_err("reject");
         assert!(err.to_string().contains("account_avatar_invalid"));
+    }
+
+    #[sqlx::test]
+    async fn avatar_paths_in_use_lists_account_refs(pool: sqlx::PgPool) {
+        run_migrations(&pool).await.expect("migrate");
+        let id = crate::tests::insert_test_account(&pool, "13900001999").await;
+        repository::set_avatar(&pool, id, Some("2026/01/inuse.webp".into()))
+            .await
+            .expect("set");
+        let paths = avatar_paths_in_use(&pool).await.expect("in_use");
+        assert!(paths.contains("2026/01/inuse.webp"));
     }
 }

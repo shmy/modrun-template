@@ -17,7 +17,9 @@ blob-cos = ["blob_kit/cos", "web_state/blob-cos"]
 axum = { workspace = true }
 axum_typed_multipart = { workspace = true }
 blob_kit = { workspace = true }
+cache_kit = { workspace = true }
 file_contract = { workspace = true }
+http_auth = { workspace = true }
 http_extractors = { workspace = true }
 http_routing = { workspace = true }
 image_kit = { workspace = true }
@@ -25,6 +27,7 @@ locale = { workspace = true }
 modrun = { workspace = true }
 rootcause = { workspace = true }
 serde = { workspace = true }
+shared_contract = { workspace = true }
 sqlx = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true }

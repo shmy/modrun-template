@@ -53,6 +53,7 @@ image: file,fixtures/one-by-one.png; image/png
 
 HTTP 200
 [Captures]
+uploaded_path: jsonpath "$.path"
 uploaded_url: jsonpath "$.url"
 [Asserts]
 jsonpath "$.path" matches /^staging\//
@@ -67,3 +68,46 @@ HTTP 200
 header "Content-Type" == "image/webp"
 header "X-Content-Type-Options" == "nosniff"
 body matches /.+/
+
+###############################################################################
+# staging 归属：上传者可 commit；claim 消费后不可再次转正
+POST {{base_url}}/api/v1/accounts
+Authorization: Bearer {{file_admin_at}}
+Content-Type: application/json
+```json
+{
+  "name": "e2e-file-avatar",
+  "phone": "13900009997",
+  "password": "e2euser12",
+  "avatar": "{{uploaded_path}}"
+}
+```
+
+HTTP 200
+[Captures]
+file_avatar_account_id: jsonpath "$.id"
+[Asserts]
+jsonpath "$.avatar" matches /^[0-9]{4}\/[0-9]{2}\//
+jsonpath "$.avatar" not matches /^staging\//
+
+# 已消费的 staging 再绑到另一账号 → claim 不存在
+POST {{base_url}}/api/v1/accounts
+Authorization: Bearer {{file_admin_at}}
+Content-Type: application/json
+```json
+{
+  "name": "e2e-reuse-staging",
+  "phone": "13900009996",
+  "password": "e2euser12",
+  "avatar": "{{uploaded_path}}"
+}
+```
+
+HTTP 404
+[Asserts]
+jsonpath "$.error_code" == "account_avatar_not_found"
+
+DELETE {{base_url}}/api/v1/accounts/{{file_avatar_account_id}}
+Authorization: Bearer {{file_admin_at}}
+
+HTTP 200

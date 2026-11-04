@@ -145,6 +145,7 @@ HTTP 200
 e2e_user_id: jsonpath "$.id"
 [Asserts]
 jsonpath "$.name" == "e2e-user"
+jsonpath "$.avatar" == null
 
 GET {{base_url}}/api/v1/accounts/{{e2e_user_id}}
 Authorization: Bearer {{admin_at}}
@@ -154,6 +155,46 @@ HTTP 200
 e2e_user_version: jsonpath "$.version"
 [Asserts]
 jsonpath "$.id" == "{{e2e_user_id}}"
+jsonpath "$.avatar" == null
+
+###############################################################################
+# 头像：上传 staging → PATCH avatar → GET 读模型带回正式 path
+POST {{base_url}}/api/v1/files/images
+Authorization: Bearer {{admin_at}}
+[Multipart]
+image: file,fixtures/one-by-one.png; image/png
+
+HTTP 200
+[Captures]
+e2e_avatar_staging: jsonpath "$.path"
+[Asserts]
+jsonpath "$.path" matches /^staging\//
+
+PATCH {{base_url}}/api/v1/accounts/{{e2e_user_id}}/avatar
+Authorization: Bearer {{admin_at}}
+Content-Type: application/json
+```json
+{
+  "avatar": "{{e2e_avatar_staging}}",
+  "version": {{e2e_user_version}}
+}
+```
+
+HTTP 200
+[Captures]
+e2e_user_version: jsonpath "$.version"
+e2e_avatar_path: jsonpath "$.avatar"
+[Asserts]
+jsonpath "$.avatar" matches /^[0-9]{4}\/[0-9]{2}\//
+jsonpath "$.avatar" not matches /^staging\//
+
+GET {{base_url}}/api/v1/accounts/{{e2e_user_id}}
+Authorization: Bearer {{admin_at}}
+
+HTTP 200
+[Asserts]
+jsonpath "$.avatar" == "{{e2e_avatar_path}}"
+jsonpath "$.version" == {{e2e_user_version}}
 
 PATCH {{base_url}}/api/v1/accounts/{{e2e_user_id}}
 Authorization: Bearer {{admin_at}}

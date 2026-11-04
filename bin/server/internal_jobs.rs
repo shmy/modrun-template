@@ -90,15 +90,14 @@ async fn handle_attachment_gc(_job: AttachmentGc, ctx: &WebState) -> Result<()> 
     // 安全网：落库成功但 attach 失败等不一致时，业务列仍引用则跳过，避免误删成死链。
     // 新表有附件列时：在此合并对应 feature 的 `*_paths_in_use`（见 docs/ai/conventions.md「附件引用」）。
     let in_use = identity::avatar_paths_in_use(&ctx.pg).await?;
+    for path in candidates.iter().filter(|p| in_use.contains(*p)) {
+        tracing::warn!(
+            path,
+            "attachment gc: path still referenced by accounts.avatar; skip"
+        );
+    }
     let mut deleted = 0u64;
-    for path in candidates {
-        if in_use.contains(&path) {
-            tracing::warn!(
-                path,
-                "attachment gc: path still referenced by accounts.avatar; skip"
-            );
-            continue;
-        }
+    for path in attachment::filter_gc_candidates(candidates, &in_use) {
         match attachment::purge_object(&ctx.pg, &ctx.blob, &path).await {
             Ok(()) => deleted += 1,
             Err(err) => {

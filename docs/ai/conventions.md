@@ -41,26 +41,30 @@
 
 | 状态 | 条件 | 清理方 |
 |------|------|--------|
-| staging | 仅对象存储，无 `blob_objects` 行 | `BlobGc`（标准 `staging/YYYY/MM/` 按月；顶层/年目录下非标准文件一并删） |
+| staging | 仅对象存储，无 `blob_objects` 行；cache 有上传者 claim | `BlobGc`（标准 `staging/YYYY/MM/` 按月；顶层/年目录下非标准文件一并删） |
 | pending | 正式 path，`ref_count=0` 且未 tombstone | `AttachmentGc`（默认 24h） |
 | attached | `ref_count≥1` | 业务 `detach` |
 | tombstone | `ref_count=0` 且已打标 | `AttachmentGc`（默认 7d） |
 
-`commit_staging`：**先 INSERT `blob_objects` 再 mv**；mv 失败回滚登记行。禁止自写「先 mv 再 INSERT」。
+`commit_staging`：**消费上传者 claim → INSERT `blob_objects` → mv**；INSERT/mv 失败回滚登记行并**恢复 claim**（同 path 可重试）。禁止自写「先 mv 再 INSERT」。上传成功须 `claim_staging`；非上传者 commit → `file_attachment_invalid`（不泄露归属）。
+
+### 公网读（`blob-fs`）
+
+`GET /files/{*path}` 仅 `blob-fs` 注册（COS 自带公网）。走 `PublicRouter`（`<img>` 无 Authorization）；保密性依赖不可猜测 TempoId 文件名。白名单：`is_public_readable_object_path`（`staging/YYYY/MM/...` 与转正 `YYYY/MM/...`）；拒绝穿越 / 空段 / 其它前缀。
 
 ### 新表 / 新字段接入清单
 
-1. **列语义**：`TEXT`（或列表）存正式 path；API 入参可收 staging / 公网 URL，落库前必须 commit。
-2. **单 path（头像式）**：域内薄封装（参考 `avatar_ops`）→ `commit_staging` / `attach` / `detach_best_effort`；错误映射到本域 `L10nKeyedError`。
+1. **列语义**：`TEXT`（或列表）存正式 path；API 入参可收 staging / 公网 URL，落库前必须 commit（且 commit 者须为上传者）。
+2. **单 path（头像式）**：域内薄封装（参考 `avatar_ops`）→ `commit_staging` / `attach` / `detach`；错误映射到本域 `L10nKeyedError`。补偿路径才用 `detach_best_effort`。
 3. **多 path**：优先 `sync_attachments(old, new)`（返回等长正式 path 列表再落库）；其中途失败会回滚本轮 attach / 对新 commit 打 tombstone，**仍须**对业务行做补偿（见下）。
-4. **推荐顺序与补偿**（跨 PG 与 blob，无分布式事务）：
-   - 无副作用前置（哈希、鉴权、查重）→ `commit` → **写业务行**（有并发则带 `version`）→ `attach` → 对旧 path `detach`。
-   - `commit` 之后任何失败（含乐观锁 409）：对本轮新 path `detach`（tombstone）。
-   - 写行成功但 `attach` 失败：**回滚/清空业务列** + `detach` 新 path（禁止留下「行有 path、refcount=0」等 GC 误删成死链）。
-5. **删实体**：授权通过后、删行前（或同行事务内）对相关 path `detach`；幂等删除也要 detach。
-6. **AttachmentGc 安全网（必做）**：`bin/server/internal_jobs.rs` 里对候选 path 跳过「仍被业务列引用」的集合。当前仅 `identity::avatar_paths_in_use`。**新表有附件列时**：在对应 feature 提供 `*_paths_in_use(pool) -> HashSet<String>`，并在 `handle_attachment_gc` 中与现有集合合并。漏加 = 补偿失败时可能被 GC 删 blob 而成死链。
+4. **推荐顺序与补偿**（blob 与 PG 无分布式事务；**业务行与 refcount 须同 PG 事务**）：
+   - 无副作用前置（哈希、鉴权、查重）→ `commit` → **单事务**：写业务行（有并发则带 `version`）+ `attach` + 对旧 path `detach` → commit 事务。
+   - `commit` 之后事务失败（含乐观锁 409）：对本轮新 path `detach`（tombstone）；**禁止**「错误响应却已占用唯一键」。
+   - 禁止写行成功后另开请求再 attach（会留下「行有 path、refcount=0」窗口，只能靠安全网兜底）。
+5. **删实体**：授权通过后，**同事务**内先 `detach`（登记缺失可 warn 后继续，勿卡死删号）再 DELETE；**`revoke_tokens` 放在 tx.commit 之后**（避免事务失败时会话已吊销、账号仍在）。禁止先删行再 best-effort detach。
+6. **AttachmentGc 安全网（必做）**：`filter_gc_candidates` + 业务 `*_paths_in_use`；组合根见 `bin/server/internal_jobs.rs`。当前仅 `identity::avatar_paths_in_use`。**新表有附件列时**：提供 `*_paths_in_use` 并合并进 GC。漏加 = 补偿失败时可能被 GC 删 blob 而成死链。
 7. **分层**：首个消费者允许 `identity`→`file`；**第二个 feature runtime 依赖 `file` 附件时**，把登记 API 抽到独立 crate（见分层表「第二消费者再拆 `attachment`」），再改 `arch_test` / tree 若需要。
-8. **测试**：happy path refcount；换绑/清空 tombstone；删实体 detach；乐观锁冲突后新 commit 已 tombstone；`commit` 源缺失无残留登记行（见 `file::attachment` 测例）。
+8. **测试**：happy path refcount；换绑/清空 tombstone；删实体 detach；乐观锁冲突后新 commit 已 tombstone 且 version 未 bump；`commit` 源缺失无残留登记行；非上传者 claim；`filter_gc_candidates` + `list_gc_candidates`（见 `file::attachment` 测例）。
 
 ### 不要做的事
 
@@ -68,6 +72,7 @@
 * 绕过 `blob_objects` 手写正式对象 path（GC 扫不到 → 存储泄漏）
 * 只 `commit` 不 `attach` 却长期依赖 24h pending（应用失败路径应立刻 `detach`）
 * 在 `features/file` 里写具体业务表 SQL；引用枚举留在各域 / 组合根 GC 处聚合
+* 删号用 `detach_best_effort`；创建失败却留下已占手机号的账号
 
 ## 依赖变更
 

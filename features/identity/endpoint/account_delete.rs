@@ -67,13 +67,17 @@ pub(crate) async fn execute(
     path: AccountIdPath,
 ) -> rootcause::Result<DeleteAccountResponse> {
     let before = repository::require_unprotected_target(pool, actor_id, path.id).await?;
-    token_ops::revoke_tokens(cache, token_helper, path.id).await?;
-    repository::delete(pool, path.id).await?;
-    if let Some(account) = before
+    // detach 与 DELETE 同事务：禁止「先删行 → ref_count≥1 且安全网查不到 → 永久泄漏」。
+    // revoke 放在 commit 之后：避免 tx 失败时会话已吊销、账号仍在。
+    let mut tx = pool.begin().await?;
+    if let Some(account) = before.as_ref()
         && let Some(avatar) = account.avatar.as_deref()
     {
-        avatar_ops::detach_avatar(pool, avatar).await;
+        avatar_ops::detach_avatar_tx_for_delete(&mut tx, avatar).await?;
     }
+    repository::delete_tx(&mut tx, path.id).await?;
+    tx.commit().await?;
+    token_ops::revoke_tokens(cache, token_helper, path.id).await?;
     Ok(DeleteAccountResponse {
         id: path.id,
         deleted: true,
@@ -85,6 +89,7 @@ mod tests {
     use super::*;
     use crate::tests;
     use blob_kit::Blob;
+    use file::attachment;
     use migration::run_migrations;
     use std::io::Cursor;
 
@@ -122,7 +127,10 @@ mod tests {
         blob.write(staging, Cursor::new(b"img"))
             .await
             .expect("write");
-        let path = avatar_ops::commit_avatar(&pool, &blob, staging)
+        attachment::claim_staging(&cache, staging, actor)
+            .await
+            .expect("claim");
+        let path = avatar_ops::commit_avatar(&pool, &blob, &cache, actor, staging)
             .await
             .expect("commit");
         avatar_ops::attach_avatar(&pool, &path)
@@ -150,6 +158,12 @@ mod tests {
         .unwrap();
         assert_eq!(row.ref_count, 0);
         assert!(row.tombstoned_at.is_some());
+        assert!(
+            repository::find_optional_by_id(&pool, account_id)
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[sqlx::test]
@@ -217,6 +231,42 @@ mod tests {
         )
         .await
         .unwrap();
+        let err = token_ops::consume_refresh_token(&cache, &token_helper, &tokens.refresh_token)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("refresh_token_invalid"));
+    }
+
+    /// 业务列有 avatar 但 blob_objects 无登记：不得卡死删号。
+    #[sqlx::test]
+    async fn test_delete_unregistered_avatar_still_succeeds(pool: sqlx::PgPool) {
+        run_migrations(&pool).await.expect("run migrations");
+        let cache = Cache::try_new_pg(pool.clone()).await.unwrap();
+        let token_helper = tests::test_token_helper();
+        let actor = tests::insert_privileged_account(&pool, "13900001830").await;
+        let account_id = tests::insert_test_account(&pool, "13900001831").await;
+        repository::set_avatar(&pool, account_id, Some("2026/01/orphan.webp".into()))
+            .await
+            .expect("dirty avatar");
+        let tokens = token_ops::issue_tokens(&cache, &token_helper, &account_id)
+            .await
+            .unwrap();
+
+        execute(
+            &pool,
+            &cache,
+            &token_helper,
+            actor,
+            AccountIdPath { id: account_id },
+        )
+        .await
+        .expect("delete must succeed despite missing registration");
+        assert!(
+            repository::find_optional_by_id(&pool, account_id)
+                .await
+                .unwrap()
+                .is_none()
+        );
         let err = token_ops::consume_refresh_token(&cache, &token_helper, &tokens.refresh_token)
             .await
             .unwrap_err();

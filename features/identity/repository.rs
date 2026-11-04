@@ -4,7 +4,7 @@ use identity_contract::IdentityError;
 use rootcause::Result;
 use shared_contract::{CursorPagingQuery, Id, PhoneNumber};
 use sqlx::Error;
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, Transaction};
 
 pub struct AccountListItem {
     pub id: Id,
@@ -76,8 +76,8 @@ pub async fn find_auth_by_phone(pool: &PgPool, phone: &PhoneNumber) -> Result<Op
     }))
 }
 
-pub async fn create(pool: &PgPool, account: &Account) -> Result<Id> {
-    let mut conn = pool.acquire().await?;
+/// 与 attach 等同事务：避免「账号已创建但 attach 失败仍向客户端返回错误」的半成功。
+pub async fn create_tx(tx: &mut Transaction<'_, Postgres>, account: &Account) -> Result<Id> {
     let row = sqlx::query_scalar!(
         r#"
         INSERT INTO accounts (id, name, phone, password, privileged, avatar, version)
@@ -92,7 +92,7 @@ pub async fn create(pool: &PgPool, account: &Account) -> Result<Id> {
         account.avatar,
         account.version
     )
-    .fetch_one(&mut *conn)
+    .fetch_one(&mut **tx)
     .await
     .map_err(map_unique_violation)?;
     Ok(Id::new_unchecked(row))
@@ -184,14 +184,13 @@ pub async fn update(pool: &PgPool, account: &Account) -> Result<Account> {
     }
 }
 
-/// 更新头像（`None` 清空）；要求 `expected_version` 匹配，同步 bump version。
-pub async fn update_avatar(
-    pool: &PgPool,
+/// 与 attach / detach 旧 path 同事务；调用方须已确认目标存在（失败一律 version conflict）。
+pub async fn update_avatar_tx(
+    tx: &mut Transaction<'_, Postgres>,
     id: Id,
     avatar: Option<String>,
     expected_version: i64,
 ) -> Result<Account> {
-    let mut conn = pool.acquire().await?;
     let row = sqlx::query_as!(
         AccountRow,
         r#"
@@ -208,27 +207,14 @@ pub async fn update_avatar(
         avatar,
         expected_version
     )
-    .fetch_optional(&mut *conn)
-    .await?;
-
-    match row {
-        Some(row) => Ok(row.into_account()),
-        None => {
-            let exists =
-                sqlx::query_scalar!(r#"SELECT 1 as "one!" FROM accounts WHERE id = $1"#, *id)
-                    .fetch_optional(&mut *conn)
-                    .await?;
-            Err(if exists.is_some() {
-                IdentityError::AccountVersionConflict
-            } else {
-                IdentityError::AccountNotFound
-            }
-            .into())
-        }
-    }
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or(IdentityError::AccountVersionConflict)?;
+    Ok(row.into_account())
 }
 
-/// 无条件写头像并 bump version（attach 失败回滚 / 测试夹具）。
+/// 无条件写头像并 bump version（测试夹具）。
+#[cfg_attr(not(test), allow(dead_code))]
 pub async fn set_avatar(pool: &PgPool, id: Id, avatar: Option<String>) -> Result<Account> {
     let mut conn = pool.acquire().await?;
     let row = sqlx::query_as!(
@@ -261,10 +247,9 @@ pub async fn list_avatar_paths_in_use(pool: &PgPool) -> Result<Vec<String>> {
     Ok(rows)
 }
 
-pub async fn delete(pool: &PgPool, id: Id) -> Result<()> {
-    let mut conn = pool.acquire().await?;
+pub async fn delete_tx(tx: &mut Transaction<'_, Postgres>, id: Id) -> Result<()> {
     sqlx::query!("DELETE FROM accounts WHERE id = $1", *id)
-        .execute(&mut *conn)
+        .execute(&mut **tx)
         .await?;
     Ok(())
 }
