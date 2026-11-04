@@ -1140,7 +1140,11 @@ mod tests {
 
     /// sqlite `strftime('%s','now')` 整秒时钟，语义同 [`wait_pg_now_at_least`]。
     #[cfg(feature = "sqlite")]
-    async fn wait_sqlite_now_at_least(pool: &sqlx::SqlitePool, target: i64, timeout: Duration) -> bool {
+    async fn wait_sqlite_now_at_least(
+        pool: &sqlx::SqlitePool,
+        target: i64,
+        timeout: Duration,
+    ) -> bool {
         let deadline = Instant::now() + timeout;
         loop {
             let now: i64 = sqlx::query_scalar("SELECT CAST(strftime('%s','now') AS INTEGER)")
