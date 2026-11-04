@@ -1115,6 +1115,48 @@ mod tests {
         }
     }
 
+    /// 轮询到 DB 时钟 `now() >= target`（对齐 apalis 用库时钟判 due，避免 host/DB 偏差）。
+    #[cfg(feature = "pg")]
+    async fn wait_pg_now_at_least(
+        pool: &PgPool,
+        target: chrono::DateTime<chrono::Utc>,
+        timeout: Duration,
+    ) -> bool {
+        let deadline = Instant::now() + timeout;
+        loop {
+            let now: chrono::DateTime<chrono::Utc> = sqlx::query_scalar("SELECT now()")
+                .fetch_one(pool)
+                .await
+                .expect("SELECT now()");
+            if now >= target {
+                return true;
+            }
+            if Instant::now() >= deadline {
+                return false;
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+    }
+
+    /// sqlite `strftime('%s','now')` 整秒时钟，语义同 [`wait_pg_now_at_least`]。
+    #[cfg(feature = "sqlite")]
+    async fn wait_sqlite_now_at_least(pool: &sqlx::SqlitePool, target: i64, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        loop {
+            let now: i64 = sqlx::query_scalar("SELECT CAST(strftime('%s','now') AS INTEGER)")
+                .fetch_one(pool)
+                .await
+                .expect("sqlite now");
+            if now >= target {
+                return true;
+            }
+            if Instant::now() >= deadline {
+                return false;
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+    }
+
     #[cfg(feature = "pg")]
     #[sqlx::test]
     async fn backlog_counts_pending_running_failed(pool: PgPool) {
@@ -1210,7 +1252,7 @@ mod tests {
     #[cfg(feature = "pg")]
     #[sqlx::test]
     async fn delayed_enqueue_not_consumed_until_due(pool: PgPool) {
-        let bus = JobBus::try_new_pg(pool).await.unwrap();
+        let bus = JobBus::try_new_pg(pool.clone()).await.unwrap();
         let ctx = TestCtx::default();
         let mut registry = JobRegistry::default();
         registry.register(|job, ctx| Box::pin(async move { handle_echo(job, &ctx).await }));
@@ -1226,14 +1268,25 @@ mod tests {
         assert_eq!(ctx.calls.load(Ordering::SeqCst), 0);
 
         let (_tx, handle) = spawn_worker(bus.clone(), ctx.clone(), &registry);
-        sleep(Duration::from_millis(300)).await;
+
+        // 到期前：用 PG now() 采样到 due 前 250ms（已更近则直接采），确认尚未消费。
+        let sample_before = due - chrono::Duration::milliseconds(250);
+        assert!(
+            wait_pg_now_at_least(&pool, sample_before, Duration::from_secs(5)).await,
+            "未能在 due 前完成采样"
+        );
         assert_eq!(ctx.calls.load(Ordering::SeqCst), 0, "到期前不应被消费");
 
-        // 以 DB run_at 为准等到 due 后再留 slack，避免 host/PG 时钟偏差吃光固定超时。
-        let after_due = (due + chrono::Duration::milliseconds(750) - chrono::Utc::now())
-            .to_std()
-            .unwrap_or(Duration::ZERO);
-        sleep(after_due).await;
+        // 到期后：等 PG now() 过 due + slack，再等 Done（与 host 时钟脱钩）。
+        assert!(
+            wait_pg_now_at_least(
+                &pool,
+                due + chrono::Duration::milliseconds(500),
+                Duration::from_secs(10),
+            )
+            .await,
+            "未能等到 PG 侧 due"
+        );
         assert!(wait_status(&bus, &id, "Done", Duration::from_secs(10)).await);
         assert_eq!(ctx.calls.load(Ordering::SeqCst), 1);
         handle.abort();
@@ -1597,7 +1650,7 @@ mod tests {
         let pool = crate::sqlite_helper::new_sqlite_pool(path.to_str().unwrap())
             .await
             .unwrap();
-        let bus = JobBus::try_new_sqlite(pool).await.unwrap();
+        let bus = JobBus::try_new_sqlite(pool.clone()).await.unwrap();
         let ctx = TestCtx::default();
         let mut registry = JobRegistry::default();
         registry.register(|job, ctx| Box::pin(async move { handle_echo(job, &ctx).await }));
@@ -1613,12 +1666,16 @@ mod tests {
             .unwrap();
         let id2 = latest_id(&bus, EchoJob::NAME).await.unwrap();
         let due2 = fetch_row(&bus, &id2).await.unwrap().run_at;
-        sleep(Duration::from_millis(300)).await;
+        // 整秒时钟：due 前采样（due-1）；到期后再等 due+1 留一秒 slack。
+        assert!(
+            wait_sqlite_now_at_least(&pool, due2.saturating_sub(1), Duration::from_secs(5)).await,
+            "未能在 due 前完成采样"
+        );
         assert_eq!(ctx.calls.load(Ordering::SeqCst), 1, "到期前不应被消费");
-        // sqlite run_at 为整秒；等到 due+1s 再留 slack。
-        let secs_until =
-            (due2 + 1).saturating_sub(chrono::Utc::now().timestamp()).max(0) as u64;
-        sleep(Duration::from_secs(secs_until) + Duration::from_millis(750)).await;
+        assert!(
+            wait_sqlite_now_at_least(&pool, due2 + 1, Duration::from_secs(10)).await,
+            "未能等到 sqlite 侧 due"
+        );
         assert!(wait_status(&bus, &id2, "Done", Duration::from_secs(10)).await);
         assert_eq!(ctx.calls.load(Ordering::SeqCst), 2);
         handle.abort();
