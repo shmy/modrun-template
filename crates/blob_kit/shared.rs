@@ -215,7 +215,7 @@ impl BackendCore {
         Ok(to)
     }
 
-    /// 预签名直传仅对象存储（Cos）支持；供 fs / 内存后端返回明确错误（内部 500，不进 locale）。
+    /// 预签名直传仅对象存储（Cos）支持；供 fs / 内存后端返回明确错误（内部 500）。
     #[cfg(any(feature = "fs", feature = "test-utils"))]
     pub(crate) fn presign_unsupported() -> Result<String> {
         use crate::error::BlobError;

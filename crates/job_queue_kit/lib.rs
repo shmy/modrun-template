@@ -1220,14 +1220,21 @@ mod tests {
             .await
             .unwrap();
         let id = latest_id(&bus, EchoJob::NAME).await.unwrap();
-        assert_eq!(fetch_row(&bus, &id).await.unwrap().status, "Pending");
+        let row = fetch_row(&bus, &id).await.unwrap();
+        let due = row.run_at;
+        assert_eq!(row.status, "Pending");
         assert_eq!(ctx.calls.load(Ordering::SeqCst), 0);
 
         let (_tx, handle) = spawn_worker(bus.clone(), ctx.clone(), &registry);
         sleep(Duration::from_millis(300)).await;
         assert_eq!(ctx.calls.load(Ordering::SeqCst), 0, "到期前不应被消费");
 
-        assert!(wait_status(&bus, &id, "Done", Duration::from_secs(5)).await);
+        // 以 DB run_at 为准等到 due 后再留 slack，避免 host/PG 时钟偏差吃光固定超时。
+        let after_due = (due + chrono::Duration::milliseconds(750) - chrono::Utc::now())
+            .to_std()
+            .unwrap_or(Duration::ZERO);
+        sleep(after_due).await;
+        assert!(wait_status(&bus, &id, "Done", Duration::from_secs(10)).await);
         assert_eq!(ctx.calls.load(Ordering::SeqCst), 1);
         handle.abort();
     }
@@ -1605,9 +1612,14 @@ mod tests {
             .await
             .unwrap();
         let id2 = latest_id(&bus, EchoJob::NAME).await.unwrap();
+        let due2 = fetch_row(&bus, &id2).await.unwrap().run_at;
         sleep(Duration::from_millis(300)).await;
         assert_eq!(ctx.calls.load(Ordering::SeqCst), 1, "到期前不应被消费");
-        assert!(wait_status(&bus, &id2, "Done", Duration::from_secs(5)).await);
+        // sqlite run_at 为整秒；等到 due+1s 再留 slack。
+        let secs_until =
+            (due2 + 1).saturating_sub(chrono::Utc::now().timestamp()).max(0) as u64;
+        sleep(Duration::from_secs(secs_until) + Duration::from_millis(750)).await;
+        assert!(wait_status(&bus, &id2, "Done", Duration::from_secs(10)).await);
         assert_eq!(ctx.calls.load(Ordering::SeqCst), 2);
         handle.abort();
     }

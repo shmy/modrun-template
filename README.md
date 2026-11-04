@@ -182,7 +182,7 @@ cargo run -p migrator
 sqlx migrate run --source infra/migration/versions --database-url "$DATABASE_URL"
 ```
 
-**Migration squash**：`0002`/`0003`/`0004` 已并入 `0001_baseline`；新库/模板冷启用 baseline 即可。**已按旧 versions 跑过的库不能无脑当兼容升级继续 `sqlx migrate`**。
+**Migration squash**：`0002`/`0003`/`0004` 已并入 `0001_baseline`；其后 baseline 又改过（如 avatar），另有 `0002_blob_objects`。新库/模板按当前 migrations 冷启即可。**已按更早 baseline checksum（或旧 versions）跑过的库不能无脑当兼容升级继续 `sqlx migrate`**。
 
 **SQL 查询**：优先使用 `sqlx::query!` / `query_as!` / `query_scalar!` 编译期校验；编译时需可访问的 `DATABASE_URL`（指向已跑过 `just sqlx_up` 的库，含 `apalis.jobs`）。本仓库不提交 `.sqlx`；空库冷启 migrator 时临时 `SQLX_OFFLINE=true`（借 `apalis-postgres` 包内缓存）。
 
