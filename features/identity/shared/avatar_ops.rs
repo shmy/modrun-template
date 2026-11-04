@@ -1,7 +1,5 @@
 //! 头像绑定：经 `file::attachment` 登记正式对象（commit / attach / detach）。
 
-use std::collections::HashSet;
-
 use blob_kit::Blob;
 use cache_kit::Cache;
 use file::attachment;
@@ -12,6 +10,8 @@ use shared_contract::Id;
 use sqlx::{PgPool, Postgres, Transaction};
 
 use crate::repository;
+use file::attachment_refs::AttachmentRefs;
+use futures_util::future::BoxFuture;
 
 /// staging / 公网 URL → 正式 path 并登记（ref_count=0）；须为上传者本人。
 pub async fn commit_avatar(
@@ -54,12 +54,20 @@ pub async fn detach_avatar_best_effort(pool: &PgPool, path: &str) {
     attachment::detach_best_effort(pool, path).await;
 }
 
-/// AttachmentGc 安全网：跳过仍挂在账号上的 path，避免落库成功但 attach 失败时误删。
-pub async fn avatar_paths_in_use(pool: &PgPool) -> Result<HashSet<String>> {
-    Ok(repository::list_avatar_paths_in_use(pool)
-        .await?
-        .into_iter()
-        .collect())
+/// 本域贡献给 `AttachmentGc` 的引用来源（`accounts.avatar`）。
+///
+/// 在 [`crate::module`] 里 `provide_group` 注册；新增带附件列的表时，
+/// 在本域实现一个同样的贡献者即可，组合根不用改。
+pub struct AvatarRefs;
+
+impl AttachmentRefs for AvatarRefs {
+    fn source(&self) -> &'static str {
+        "accounts.avatar"
+    }
+
+    fn paths_in_use<'a>(&'a self, pool: &'a PgPool) -> BoxFuture<'a, Result<Vec<String>>> {
+        Box::pin(async move { repository::list_avatar_paths_in_use(pool).await })
+    }
 }
 
 fn map_file_err(err: rootcause::Report) -> rootcause::Report {
@@ -124,13 +132,13 @@ mod tests {
     }
 
     #[sqlx::test]
-    async fn avatar_paths_in_use_lists_account_refs(pool: sqlx::PgPool) {
+    async fn avatar_refs_lists_account_paths(pool: sqlx::PgPool) {
         run_migrations(&pool).await.expect("migrate");
         let id = insert_test_account(&pool, "13900001999").await;
         repository::set_avatar(&pool, id, Some("2026/01/inuse.webp".into()))
             .await
             .expect("set");
-        let paths = avatar_paths_in_use(&pool).await.expect("in_use");
-        assert!(paths.contains("2026/01/inuse.webp"));
+        let paths = AvatarRefs.paths_in_use(&pool).await.expect("in_use");
+        assert!(paths.iter().any(|p| p == "2026/01/inuse.webp"));
     }
 }

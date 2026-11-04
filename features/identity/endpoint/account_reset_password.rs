@@ -15,7 +15,7 @@ use web_state::{AppState, HasSession};
 
 use crate::dto::AccountIdPath;
 use crate::repository;
-use crate::shared::token_ops;
+use crate::shared::password_ops;
 
 #[derive(Debug, Deserialize, Validify, ToSchema)]
 pub struct ResetPasswordRequest {
@@ -84,14 +84,14 @@ pub(crate) async fn execute(
         .await?
         .ok_or(IdentityError::AccountNotFound)?;
     let new_hashed = HashedPassword::try_new(&request.new_password).await?;
-    token_ops::revoke_tokens(cache, token_helper, path.id).await?;
-    repository::update_password(pool, path.id, &new_hashed).await?;
+    password_ops::commit_password_change(pool, cache, token_helper, path.id, &new_hashed).await?;
     Ok(ResetPasswordResponse { updated: true })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shared::token_ops;
     use crate::tests;
     use migration::run_migrations;
 

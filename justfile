@@ -73,18 +73,23 @@ new-feature name:
 load-baseline:
     @bash scripts/load-baseline.sh
 
-# 需要显式 blob-fs 才能编过 WebState/Blob 的 crate（无 default feature）
-crate_needs_blob := "web_state identity file health http_server http_auth http_routing scheduler"
+# 单独 check 时需要额外 --features 的 crate（WebState 字段按 feature 门控）：
+# - blob 组：用到 HasBlob / Blob 参数
+# - queue 组：用到 HasJobs / JobBus（scheduler 的 HasJobBus 读 WebState.jobs）
+# health / http_server / http_routing / http_auth 只用 pool+cache，无需额外 feature。
+crate_needs_blob := "web_state identity file"
+crate_needs_queue := "web_state scheduler"
 
 # 快门（迭代中小步）：格式 + clippy（clippy 覆盖类型检查），秒级反馈
 lint crate:
     #!/usr/bin/env bash
     set -euo pipefail
     set -a && [ -f .env ] && source .env
+    feats=""
+    case " {{crate_needs_blob}} " in *" {{crate}} "*) feats="blob-fs" ;; esac
+    case " {{crate_needs_queue}} " in *" {{crate}} "*) feats="${feats:+$feats,}job-queue-pg" ;; esac
     extra=""
-    case " {{crate_needs_blob}} " in
-      *" {{crate}} "*) extra="--features blob-fs" ;;
-    esac
+    [ -n "$feats" ] && extra="--features $feats"
     cargo fmt --all -- --check
     cargo clippy -p {{crate}} $extra --all-targets
 
@@ -93,10 +98,11 @@ ai-check crate: (lint crate)
     #!/usr/bin/env bash
     set -euo pipefail
     set -a && [ -f .env ] && source .env
+    feats=""
+    case " {{crate_needs_blob}} " in *" {{crate}} "*) feats="blob-fs" ;; esac
+    case " {{crate_needs_queue}} " in *" {{crate}} "*) feats="${feats:+$feats,}job-queue-pg" ;; esac
     extra=""
-    case " {{crate_needs_blob}} " in
-      *" {{crate}} "*) extra="--features blob-fs" ;;
-    esac
+    [ -n "$feats" ] && extra="--features $feats"
     echo "=== Architecture test ==="
     cargo test -p server arch_test --quiet 2>&1 | tail -5
     echo "=== Test {{crate}} ==="
@@ -109,14 +115,23 @@ clippy_workspace:
     #!/usr/bin/env bash
     set -euo pipefail
     set -a && [ -f .env ] && source .env
-    # 主趟：其余 crate 仍 --all-features；排除会把 sqlite 编进依赖图的根包。
+    # 主趟：其余 crate 仍 --all-features；排除会让 pg/sqlite 冲突或需显式后端的根包。
+    # scheduler 也排除：它 `--all-features` 会同时打开 job-queue-pg + job-queue-sqlite，
+    # 把两个 apalis 后端编进同一图（apalis 宏共用 DATABASE_URL，必炸）。
     cargo clippy --workspace --all-targets --all-features \
         --exclude job_queue_kit \
         --exclude job_queue \
         --exclude web_state \
+        --exclude scheduler \
         --exclude server
     # 上述根包：显式开全后端，但 job-queue 只开 pg（DATABASE_URL=PG + apalis schema）。
+    # web_state 必须同时给出 blob 与队列后端（字段按 feature 门控）；分两趟避免 pg/sqlite 冲突。
     cargo clippy -p web_state --all-targets --features "job-queue-pg,blob-fs,blob-cos"
+    SQLX_OFFLINE=true cargo clippy -p web_state --all-targets \
+        --no-default-features --features "job-queue-sqlite,blob-fs,blob-cos"
+    cargo clippy -p scheduler --all-targets --features "job-queue-pg"
+    SQLX_OFFLINE=true cargo clippy -p scheduler --all-targets \
+        --no-default-features --features "job-queue-sqlite"
     cargo clippy -p job_queue --all-targets --features pg
     cargo clippy -p job_queue_kit --all-targets --features pg
     cargo clippy -p server --all-targets --no-default-features \

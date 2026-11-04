@@ -9,7 +9,10 @@
 //!   并 quarantine（钳 `max_attempts` + 推远 `run_at`），避免 `handle_result` 回写后
 //!   tight loop / 假 Failed 泄漏；
 //! - **超时**：单次执行超过 `Job::TIMEOUT` 按一次失败计（`job_timeout`）；
-//! - **panic**：handler 内 `catch_unwind`，记一次失败（与超时同路径）；
+//! - **panic**：handler 内 `catch_unwind`，记一次失败（与超时同路径）。
+//!   **前提是 `panic = "unwind"`**：workspace 的 `[profile.dev]` / `[profile.release]`
+//!   曾设为 `abort`，此时 catch_unwind 抓不到 panic，一次 job panic 会直接终止进程
+//!   （见根 `Cargo.toml` 的 profile 注释）。改回 abort 前须先删掉本模块的隔离承诺。
 //! - **终态**：重试耗尽 → `Failed`；不可恢复中止 → `Killed`；均可审计，由 GC 清理。
 //!
 //! pg 用 `LISTEN/NOTIFY`（`Pubsub`）+ 短间隔轮询兜底延迟任务；sqlite 用轮询

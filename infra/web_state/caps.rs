@@ -4,12 +4,21 @@
 //! Handler 用 `State<AppState>`（组合根具体类型），业务逻辑取 `&impl HasSession` /
 //! `&impl HasAuthCaps` / `&impl HasPool` / `&impl HasBlob` 等窄边界
 //! （utoipa `routes!` 不支持泛型 handler）。
+//!
+//! **后端相关的能力 trait 整段按 feature 门控**：`HasBlob` / `HasJobs` 的签名依赖
+//! `Blob` / `JobBus`，而二者是 `web_state` 的 optional dep，所以 trait 本身也必须
+//! `cfg`——否则不选后端的 crate 会因解析不到这些类型而编不过。只读 pool 的
+//! `health` / `http_routing` / `http_auth` 不引用这两个 trait，即可完全不碰
+//! opendal / apalis。
 
-use blob_kit::Blob;
 use cache_kit::Cache;
-use job_queue_kit::JobBus;
 use jwt_kit::TokenHelper;
 use sqlx::PgPool;
+
+#[cfg(any(feature = "blob-fs", feature = "blob-cos"))]
+use blob_kit::Blob;
+#[cfg(any(feature = "job-queue-pg", feature = "job-queue-sqlite"))]
+use job_queue_kit::JobBus;
 
 pub trait HasPool {
     fn pool(&self) -> &PgPool;
@@ -19,10 +28,12 @@ pub trait HasCache {
     fn cache(&self) -> &Cache;
 }
 
+#[cfg(any(feature = "blob-fs", feature = "blob-cos"))]
 pub trait HasBlob {
     fn blob(&self) -> &Blob;
 }
 
+#[cfg(any(feature = "job-queue-pg", feature = "job-queue-sqlite"))]
 pub trait HasJobs {
     fn jobs(&self) -> &JobBus;
 }

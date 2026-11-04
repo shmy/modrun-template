@@ -10,11 +10,6 @@ path = "lib.rs"
 [lints]
 workspace = true
 
-[features]
-default = []
-blob-fs = ["web_state/blob-fs"]
-blob-cos = ["web_state/blob-cos"]
-
 [dependencies]
 axum = { workspace = true }
 modrun = { workspace = true }

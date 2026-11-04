@@ -30,12 +30,27 @@ fn workspace_members() -> Vec<PathBuf> {
     let root = workspace_root();
     let content = read_to_string(root.join("Cargo.toml")).unwrap();
     let doc: toml::Value = toml::from_str(&content).unwrap();
-    doc["workspace"]["members"]
+    let listed: Vec<PathBuf> = doc["workspace"]["members"]
         .as_array()
         .unwrap()
         .iter()
         .map(|member| root.join(member.as_str().unwrap()))
-        .collect()
+        .collect();
+    // 隐式成员（有 path 依赖但没写进 `members`）也要覆盖：否则 `infra/migration`
+    // 这类 crate 会绕过 lint 继承检查（它此前确实是漏的）。
+    let mut all = listed;
+    for dir in ["infra"] {
+        for entry in read_dir(root.join(dir)).unwrap() {
+            let entry = entry.unwrap();
+            if entry.file_type().unwrap().is_dir() {
+                let cargo = entry.path().join("Cargo.toml");
+                if cargo.exists() && !all.contains(&entry.path()) {
+                    all.push(entry.path());
+                }
+            }
+        }
+    }
+    all
 }
 
 fn inherits_workspace_lints(crate_dir: &Path) -> bool {

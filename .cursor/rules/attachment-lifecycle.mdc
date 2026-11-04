@@ -14,7 +14,7 @@ alwaysApply: false
 - 顺序：commit → **同事务**写业务行（并发带 version）+ attach + detach 旧 path
 - commit 后事务失败：`detach` 新 path；禁止错误响应却已占用唯一键
 - 删实体：**同事务**先 detach（缺登记可继续）再 DELETE；`revoke_tokens` 在 commit 之后（勿 `detach_best_effort`）
-- **新附件列**：实现 `*_paths_in_use`，并入 `bin/server/internal_jobs.rs` 的 AttachmentGc 安全网（与 `identity::avatar_paths_in_use` 合并）
+- **新附件列**：实现 `file::attachment_refs::AttachmentRefs`（`source()` + `paths_in_use()`），在本 feature 的 `module()` 里 `provide_group` 注册；`AttachmentGc` 会自动合并（无需改 `bin/server`）。零贡献者由 `main` 的 `require_group` 在装配期拒绝
 
 ## 选择
 

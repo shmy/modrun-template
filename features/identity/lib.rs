@@ -11,12 +11,14 @@
 use crate::entity::Account;
 use crate::value_object::HashedPassword;
 use config::cli::{Cli, ExposeSecret, SeedCli};
+use file::attachment_refs::AttachmentRefs;
 use http_routing::{ProtectedRouter, PublicRouter, auth_layer};
 use modrun::Error;
 use modrun::{Lifecycle, Module, Result, hook};
 use shared_contract::{Id, PhoneNumber};
 use sqlx::PgPool;
 use std::env::var_os;
+use std::sync::Arc;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 mod dto;
@@ -26,9 +28,6 @@ mod repository;
 mod shared;
 mod value_object;
 
-/// AttachmentGc 安全网：仍被 `accounts.avatar` 引用的正式 path。
-pub use shared::avatar_ops::avatar_paths_in_use;
-
 #[cfg(test)]
 pub(crate) mod tests;
 
@@ -37,8 +36,14 @@ pub fn module() -> Module {
     shared::l10n::register_identity_locales();
     Module::builder("identity")
         .invoke(register)
+        .provide_group(attachment_refs)
         .provide_group_result(public_routes)
         .provide_group(protected_routes)
+}
+
+/// 贡献给 `AttachmentGc` 的附件引用来源（`accounts.avatar`）。
+fn attachment_refs() -> Arc<dyn AttachmentRefs> {
+    Arc::new(shared::avatar_ops::AvatarRefs)
 }
 
 fn register(lc: Lifecycle, pool: PgPool, cli: Cli) -> Result<()> {

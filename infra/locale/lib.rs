@@ -36,10 +36,19 @@ fn registry_lock() -> MutexGuard<'static, Vec<(&'static str, &'static str)>> {
 }
 
 /// 注册一段 Fluent 资源。feature 在 `module()` 时调用；须在首次 `translate` 前完成。
+///
+/// 已密封（bundle 已构建）后注册属于**装配顺序错误**：此时再注册的 key 永远不会生效，
+/// 与其静默丢失，不如立即失败。这里用 `panic!` 而非 `Result` 是因为所有调用点都在
+/// `module()` 的同步注册函数里（modrun 的 `invoke` 不便回溯到 feature 的注册处），
+/// 且 `panic = "unwind"` 下 modrun 会把它当作启动失败处理（见根 Cargo.toml profile 注释）。
+///
+/// # Panics
+/// bundle 已构建后再调用。
 pub fn register_ftl(locale: &'static str, ftl: &'static str) {
     assert!(
         BUNDLES.get().is_none(),
-        "register_ftl after bundles sealed (too late)"
+        "register_ftl after bundles sealed: {locale} FTL registered too late \
+         (must happen in Module::module(), before the first translate)"
     );
     registry_lock().push((locale, ftl));
 }

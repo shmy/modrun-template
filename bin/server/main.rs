@@ -1,5 +1,7 @@
 use config::load;
+use file::attachment_refs::AttachmentRefs;
 use modrun::Modrun;
+use std::sync::Arc;
 use trace_kit::{TraceConfig, init_tracing};
 use utoipa::OpenApi as _;
 
@@ -40,6 +42,9 @@ async fn main() -> modrun::Result<()> {
     Modrun::builder()
         .supply(cli)
         .supply(ApiDoc::openapi())
+        // 附件安全网：至少要有一个域贡献 AttachmentRefs；空 Group 在装配期失败，
+        // 避免 AttachmentGc 在无 in-use 集合时误删仍被引用的正式对象。
+        .require_group::<Arc<dyn AttachmentRefs>>()
         .module(persistence::module())
         .module(cache::module())
         .module(blob::module())

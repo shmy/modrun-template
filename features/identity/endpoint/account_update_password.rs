@@ -11,7 +11,7 @@ use web_error::{JsonResponseType, ProblemDetails};
 use web_state::{AppState, HasSession};
 
 use crate::repository;
-use crate::shared::token_ops;
+use crate::shared::password_ops;
 
 use crate::value_object::Password;
 use shared_contract::Id;
@@ -79,14 +79,15 @@ pub(crate) async fn execute(
     let old_hashed = repository::get_password_hash(pool, account_id).await?;
     old_hashed.verify(&request.old_password).await?;
     let new_hashed = HashedPassword::try_new(&request.new_password).await?;
-    token_ops::revoke_tokens(cache, token_helper, account_id).await?;
-    repository::update_password(pool, account_id, &new_hashed).await?;
+    password_ops::commit_password_change(pool, cache, token_helper, account_id, &new_hashed)
+        .await?;
     Ok(UpdatePasswordResponse { updated: true })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shared::token_ops;
     use crate::tests;
     use crate::value_object::Password;
     use migration::run_migrations;

@@ -27,6 +27,7 @@ blob_kit = { workspace = true }
 config = { workspace = true }
 file = { workspace = true }
 file_contract = { workspace = true }
+futures-util = { workspace = true }
 http_auth = { workspace = true }
 http_extractors = { workspace = true }
 http_routing = { workspace = true }

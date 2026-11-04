@@ -11,19 +11,23 @@ path = "lib.rs"
 workspace = true
 
 [features]
-default = ["job-queue-pg"]
-job-queue-pg = ["job_queue_kit/pg"]
-job-queue-sqlite = ["job_queue_kit/sqlite"]
+# 无 default：blob / 队列后端必须由消费方显式选择。
+# 曾设 default = ["job-queue-pg"]，导致只读 pool 的 `health` 也把 apalis 拖进依赖图（~790 crate）。
+# 现在 `WebState.blob` / `WebState.jobs` 都是 feature 门控字段：不选后端 = 结构里没有该字段，
+# 于是 health / http_routing / http_auth 这类只用 pool+cache 的 crate 可以完全不碰 opendal / apalis。
+default = []
+job-queue-pg = ["dep:job_queue_kit", "job_queue_kit/pg"]
+job-queue-sqlite = ["dep:job_queue_kit", "job_queue_kit/sqlite"]
 # 由 server 的 blob-cos / blob-fs 或 just lint/ai-check 显式打开；勿进 default。
-blob-fs = ["blob_kit/fs"]
-blob-cos = ["blob_kit/cos"]
+blob-fs = ["dep:blob_kit", "blob_kit/fs"]
+blob-cos = ["dep:blob_kit", "blob_kit/cos"]
 
 [dependencies]
-blob_kit = { workspace = true }
+blob_kit = { workspace = true, optional = true }
 cache_kit = { workspace = true }
 config = { workspace = true }
 http_extractors = { workspace = true }
-job_queue_kit = { workspace = true }
+job_queue_kit = { workspace = true, optional = true }
 jwt_kit = { workspace = true }
 modrun = { workspace = true }
 sqlx = { workspace = true }

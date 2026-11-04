@@ -2,7 +2,7 @@ use crate::entity::Account;
 use crate::repository::AccountListItem;
 use crate::value_object::{Password, RefreshToken};
 use serde::{Deserialize, Serialize};
-use shared_contract::{Id, PhoneNumber, PhoneNumberError};
+use shared_contract::{CursorPagingResult, Id, PhoneNumber, PhoneNumberError};
 use utoipa::{IntoParams, ToSchema};
 use validify::{ValidationError, Validify};
 
@@ -59,11 +59,23 @@ pub struct AccountDetail {
 }
 
 /// OpenAPI 用分页响应壳（字段与 `CursorPagingResult` 对齐；契约类型本身不依赖 utoipa）。
+///
+/// handler 必须**真的**返回它，而不是声明它却返回 `CursorPagingResult`：
+/// 否则 schema 与实际 body 会悄悄分叉。
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AccountSearchResponse {
     pub items: Vec<AccountPublic>,
     #[schema(value_type = Option<String>)]
     pub next_cursor: Option<Id>,
+}
+
+impl From<CursorPagingResult<AccountPublic>> for AccountSearchResponse {
+    fn from(page: CursorPagingResult<AccountPublic>) -> Self {
+        Self {
+            items: page.items,
+            next_cursor: page.next_cursor,
+        }
+    }
 }
 
 impl From<Account> for AccountPublic {

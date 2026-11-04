@@ -19,9 +19,12 @@ use utoipa_axum::{
 };
 
 pub mod attachment;
+pub mod attachment_refs;
 
 mod endpoint;
 mod shared;
+
+pub use shared::staging_gc;
 
 /// 单文件最大 2MiB，整体 body 略放大以容纳 boundary 等开销。
 const FILE_UPLOAD_BODY_LIMIT: usize = 3 * 1024 * 1024;

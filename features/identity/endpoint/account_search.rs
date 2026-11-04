@@ -72,9 +72,9 @@ pub async fn handler(
     AuthedAccount(actor_id): AuthedAccount,
     State(state): State<AppState>,
     ValidQuery(query): ValidQuery<SearchAccountQuery>,
-) -> JsonResponseType<CursorPagingResult<AccountPublic>> {
+) -> JsonResponseType<AccountSearchResponse> {
     let response = execute(state.pool(), actor_id, query).await?;
-    Ok(Json(response))
+    Ok(Json(response.into()))
 }
 
 pub(crate) async fn execute(

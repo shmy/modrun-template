@@ -12,8 +12,10 @@ workspace = true
 
 [features]
 default = []
-blob-fs = ["web_state/blob-fs"]
-blob-cos = ["web_state/blob-cos"]
+# scheduler 的 `HasJobBus` 实现读 `WebState.jobs`，故必须选中一种队列后端；
+# 同时把 job_queue_kit 后端打开（本 crate 直接依赖它，不能只靠 web_state 透传）。
+job-queue-pg = ["web_state/job-queue-pg", "job_queue_kit/pg"]
+job-queue-sqlite = ["web_state/job-queue-sqlite", "job_queue_kit/sqlite"]
 
 [dependencies]
 config = { workspace = true }

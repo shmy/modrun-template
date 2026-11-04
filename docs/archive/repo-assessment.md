@@ -1,141 +1,86 @@
-# 仓库深度评估（2026-09-05）
+# 历史评审台账
 
-> **历史快照，可能已过时。** 以根目录 [AGENTS.md](../AGENTS.md) 与当前代码为准；勿作为实现依据。修复进度见 [repo-assessment-progress.md](repo-assessment-progress.md)（亦可能滞后）。
+> **历史记录，不是实现依据。** 本文只回答「当时发现了什么、现在修没修」。
+> 现行规则见 [AGENTS.md](../AGENTS.md)，代码现状以仓库为准。
 
-> 基于对全部 28 个 crate、约 11.5k 行 Rust 的实际代码阅读（重点：auth 链路、job queue、
-> cache/blob 后端、错误与 i18n、迁移与测试），非仅依据文档。
+2026-09 由六个视角对仓库做过深度评审（架构/安全、实现与契约、企业语义、modrun 装配、
+业务与 AI 协作、攻击面与定位），共七份文档。七份原文已合并为本文：结论保留，过程与
+重复论证删除。状态按 **2026-11 的代码**重新核对过，不是照抄当时的判断。
 
-## 一、优点
+## 一、结论（六版收敛）
 
-### 1. 架构守护是"机械"的，不是"口头"的
+**没有一处发现指向「架构推倒重来」**——所有问题都可定位、可低风险修复。
+当时的判断是：代码与装配是资深工程师水准（TSID、补偿事务、队列、modrun 用法、
+文档纪律），短板在「最后一公里的可交付性」（CI、容器、metrics、门禁）。
 
-- `bin/server/arch_test.rs` 直接解析 workspace `Cargo.toml`，强制执行 5 条依赖方向规则
-  （contract 互不依赖、contract 不依赖 infra、infra 不依赖 feature runtime、kit 不依赖
-  feature/infra、feature runtime 互不依赖）。架构约定不靠 review 记忆，测试拦截。
-- `justfile` 的 `who-uses` / `ai-check` 命令说明作者意识到跨域改动的爆炸半径问题。
+六版视角与各自最重要的发现：
 
-### 2. 认证链路的安全实现相当扎实
+| 视角 | 一句话结论 | 当时最重要的发现 |
+|---|---|---|
+| v1 架构/安全/外围 | 实现超预期，外围缺失 | 无 CI/CD、无 Dockerfile、无业务 metrics |
+| v2 实现细节 | 细节质量高，契约有小裂缝 | OpenAPI 示例泄露默认密码；413 语义错误 |
+| v3 企业语义 | 代码好，运营叙事缺 | 缓存故障被伪装成 401 |
+| v4 modrun 装配 | 示范级使用者 | 全局静态 mapper 绕过 DI |
+| v5 业务/AI 协作 | AI 协作是最大差异化优势 | file 域 staging 无转正，URL 会被 GC |
+| v6 攻击面/性能/定位 | 无新增重大架构问题 | argon2 阻塞 reactor；图片解码炸弹 |
 
-- `features/identity_contract/value_object/hashed_password.rs`：Argon2id + v0x13；
-  `Password` 值对象长度校验 + `Debug` 全部 redacted（`Password` / `TokenHelper` / `SecretString`）。
-- JWT 校验四层叠加：HS256 签名 + `iss`/`aud` 校验（`crates/jwt_kit/token_helper.rs`，测试覆盖
-  跨 issuer 拒绝）+ 缓存中 JTI 比对实现**即时吊销**（`infra/http_auth/middleware/authorize.rs`）
-  + refresh rotation 与重放检测（`features/identity/shared/token_ops.rs`：`used_refresh_key`
-  命中即吊销全账号会话）。
-- refresh token 只存 digest，且有专门测试 `cache_keys_do_not_store_raw_refresh_token`
-  扫表验证不泄漏——这种"验证自己没犯错"的测试很少见。
-- 限流：Redis 后端用 Lua 脚本原子实现滑动窗口（`crates/cache_kit/redis.rs`），pg/redb
-  语义对齐；IP+账号/refresh digest 双维度。
-- `TRUSTED_PROXIES` 白名单之外忽略 `X-Forwarded-For`（防伪造限流键）；文件上传 magic
-  number 校验（`file_contract::ensure_image_reader`）+ multipart 2MiB 限制 + 全局
-  `DefaultBodyLimit`。
+## 二、已修复
 
-### 3. Job queue 是生产级设计
+| 发现 | 出处 | 现状 |
+|---|---|---|
+| OpenAPI 示例泄露 `admin123!` | v2 / v3 | 示例改 `P@ssw0rd1` |
+| production 拒绝默认 seed 密码 | v1 / v3 | `Cli::validate` + 测试 |
+| `JWT_SECRET` 无强度校验 | v3 | ≥32 字节，value parser 拒绝 |
+| 连接池默认 200 vs PG 100 | v3 | 默认 20 + 容量公式（`AGENTS.md`「水平扩展」） |
+| 缓存故障伪装成 401 | v3 | `cache_unavailable` → 503，双语 ftl，三条路径 |
+| argon2 verify 阻塞 tokio worker | v6 | `spawn_blocking`（login / 改密 / reset） |
+| 图片解码炸弹 | v6 | 解码前尺寸预检 + 像素预算（`image_kit::decode_limits`） |
+| Body 超限返回 400 而非 413 | v2 | `ValidJson` 识别 `LengthLimitError` → `payload_too_large` |
+| 登录手机号枚举时序侧信道 | v2 | `HashedPassword::equalize_timing()` + 登录侧统一 key |
+| OTLP 100% 采样不可配 | v6 | `OTLP_SAMPLER_RATIO`，默认 0.1 |
+| file 域 staging 无转正流程 | v5 | `commit_staging`（claim → INSERT → mv）+ 引用计数 |
+| readyz 不查 cache | v1 / v3 | `Cache::probe()` 纳入 `/readyz` |
+| 无业务 metrics | v1 | `trace_kit::metrics`（登录成功/失败、限流命中、job 终态失败） |
+| 无独立 migrator | v3 | `bin/migrator` + `just sqlx_up`，部署先迁移再滚动 |
+| 缺 `just db-up` / 新域脚手架 | v5 | `db-up` / `new-feature` / `who-uses` |
+| 新 crate 忘记继承 lints 无守护 | 评审跟踪 | `arch_test` lint 继承测试（现已覆盖隐式 workspace 成员） |
+| commit 规范缺位 | v5 | `.cursorrules`（一 commit 一事、禁用词、正反例） |
+| 无 CI 门禁 | v1 / v6 | `ci.yml`：fmt + clippy_workspace + arch_test + deny + release-ci 构建 |
 
-`crates/job_queue_kit/`：
+## 三、方案变更后解决
 
-- `FOR UPDATE SKIP LOCKED` 竞争安全领取（`backend.rs`）、指数退避 + 封顶、孤儿扫描
-  at-least-once 兜底、DLQ-in-table（`Failed` + `last_error`）、GC 分批删除防锁表/WAL 膨胀、
-  pg `LISTEN/NOTIFY` 桥接降低轮询延迟、pg/sqlite 双后端语义一致。
-- `lib.rs` 内嵌约 700 行测试覆盖并发、去重、超时、孤儿恢复。
+| 发现 | 原问题 | 现状 |
+|---|---|---|
+| 限流 phone 维度可定向锁死 | cache 双维度滑动窗口可被攻击者用来锁死受害手机号 | 改为 governor 纯 IP 限流；「定向锁死」消除，但单号爆破防护随之丢失——取舍已写入 `AGENTS.md`，补救（递增延迟）待做 |
+| `WebState` 未按能力窄化 | 聚合 state 让只读 crate 也被拖进全部后端 | `blob` / `jobs` 改为 feature 门控字段；`health` 依赖图从约 790 crate 降到约 660，不再含 apalis/opendal |
+| GC 逻辑写在组合根 | `BlobGc` 的 staging 布局、`AttachmentGc` 的业务表引用枚举都在 `bin/server` | staging 下沉到 `file::staging_gc`；附件引用改为 `AttachmentRefs` 贡献式注册，新表不再改组合根 |
+| 错误分类靠 Display 嗅探 | 未注册的域错误若 Display 形如 snake_case 会被静默降级成 400 | 改为 fail-closed：只有注册过 mapper 的错误是 4xx，其余一律 500 |
+| 改密/重置吊销顺序 | `revoke_tokens` 在写库之前，写库失败会出现「已被踢下线但密码没改」 | 统一「先落库、后吊销」，与删号一致 |
 
-### 4. 测试覆盖的是"真实行为"而非形式
+## 四、未处理
 
-- 并发 refresh 只有一个成功（`tokio::join!` 两个 consume 断言 ok_count==1）、重放吊销、
-  乐观锁 409、删除后 token 失效、LIKE 转义（`repository.rs::like_contains_tests`）、
-  限流分维度隔离。identity 全部 endpoint 都有 `#[sqlx::test]`。
-- E2E 用 Hurl 覆盖登录流、限流（`e2e/identity_rate_limit.hurl` 的 env 注明要清缓存防旧桶误报）。
+按当前优先级排列。
 
-### 5. 可观测性完整
+| 发现 | 出处 | 备注 |
+|---|---|---|
+| CI 不跑 `just test-features` | v6 | redb / redis / sqlite / blob-fs 组合只在本地验证 |
+| CI 不跑 `just e2e` | v5 | Hurl 用例需起服务；blob-fs 静态回源等路径无 CI 覆盖 |
+| 单账号爆破防护（phone 维度） | v6 | 现仅 IP 限流；需递增延迟或独立 phone 策略 |
+| `AuthnError` 未走 `L10nKeyedError` | v1 / v2 | 现经 `err.to_string()` 直接构造 `WebError::L10n`，值正确但类型耦合仍在 |
+| 优雅停机无总 deadline | v4 | 各 task 独立 drain，未设整体上限 |
+| 业务 metrics 无队列积压 / 探针 | v1 / v3 | `JobBus::backlog()` 已实现但未接入任何探针 |
+| 审计日志 / PII 保留策略 | v3 | 未实现 |
+| ADR 目录 / 业务能力地图 | v3 / v5 | 未建立 |
+| MFA / 多设备会话 / OIDC SSO | v3 | 按产品需求排期 |
+| 模板对外发布品质 | v6 | 依赖前几项补齐 |
 
-- OTLP 三信号（log/metric/trace）一次初始化；`trace_id` 注入 ProblemDetails；
-  `sqlx::query=off` 防 SQL 参数（含密码哈希）进日志；防 telemetry-induced-telemetry 的
-  filter；`TracingGuard` Drop 时 shutdown provider。
-- `readyz` 真查 DB，不是假 200；优雅停机链路贯穿 HTTP（`task_with` + graceful）和
-  job worker（watch channel）。
+## 五、已过时的判断（勿再引用）
 
-### 6. 细节处理成熟
+合并时清理掉的、当时成立但现在不成立的说法：
 
-- `bin/server/internal_jobs.rs` 的 staging GC 只删"整个月早于保留期"的目录防误删当月文件。
-- `create_privileged_if_absent` 用 `WHERE NOT EXISTS` + 唯一 partial index
-  （`accounts_one_privileged`）处理并发 seed。
-- l10n 有测试守护"所有 key 在 en-US/zh-CN 都存在"；fluent 插值剥离 bidi 隔离字符。
-
-## 二、问题与可优化点（按严重度排序）
-
-### P0 — 明显缺失
-
-1. **完全没有 CI/CD**：仓库无 `.github/` 目录。`just pre_commit`（fmt/clippy/test/
-   arch_test/cargo machete）全靠本地自觉。feature 组合矩阵（cache×3、job×2、blob×3）
-   没有机器兜底验证。建议至少：`cargo clippy --workspace --all-targets --all-features`
-   + `cargo test --workspace` + feature 矩阵（可用 `cargo hack`）。
-2. **没有应用 Dockerfile**：只有 `docker-compose.yaml` 起依赖，无构建产物定义，
-   部署故事断在 `cargo run`。
-3. **无任何业务 metrics**：`crates/trace_kit/init.rs` 注册了全局 meter provider，但全仓库
-   没有一处业务仪表（HTTP 请求计数/延迟直方图、job 队列深度、限流命中数）。
-   `OtelAxumLayer` 只贡献 trace span；也无 Prometheus `/metrics` 端点兜底。
-
-### P1 — 设计风险
-
-4. **`SEED_ADMIN_PASSWORD` 有默认值 `admin123!` 且 `MASTER` 默认 true**：与 `JWT_SECRET`
-   必填无默认的谨慎形成反差。生产忘改环境变量就会启动出一个弱密码特权账号。
-   建议 `APP_ENV=production` 时对默认 seed 密码直接 panic。
-5. **HS256 单 secret、无轮换机制**：`crates/jwt_kit` 只支持对称 HMAC，无 `kid` / 多 key
-   验签。secret 轮换 = 全员强制下线。至少应文档化；更好的是预留 RS256/EdDSA + key id。
-6. **鉴权错误映射靠字符串巧合**：`authorize.rs` 的 `auth_error_to_web_error` 直接
-   `WebError::L10n(err.to_string())`——`AuthnError` 的 Display 文本就是 l10n key。
-   variant 改名会静默变成 400 domain error 而非编译错误。建议给 `AuthnError` 实现
-   `L10nKeyedError` 走 domain mapper 同一条正式通道。
-7. **`issue_tokens` 跨键无事务**：`token_ops.rs` 注释自认"部分写入失败可能短暂并存新旧
-   refresh"。pg 后端可用单事务 + advisory lock 做到原子；当前靠"下次 login 自愈"兜底。
-8. **readyz 只检查 DB**：不检查 cache（鉴权强依赖！cache 不可用时所有受保护接口
-   401/500）、blob、queue。K8s 下会出现 ready 但实际不可服务的窗口。
-9. **`job_queue_kit/lib.rs` 1286 行单文件**：实现 + ~700 行测试混在一起，worker loop /
-   backoff / notify bridge / orphan sweep 应拆模块。全仓库唯一明显超出合理粒度的文件。
-
-### P2 — 可打磨
-
-10. 每请求鉴权 = 1 次缓存查询 + 每次连接池 acquire；access token 有效期内 JTI 可本地
-    LRU 缓存数秒，减少 pg cache 热点（性能优化空间）。
-11. `lock_by` 硬编码 `"local-worker"`（`backend.rs`）——多实例排障无法区分 worker，
-    应注入 hostname/pod name。
-12. 密码策略只有长度 8–64，无复杂度/黑名单校验；登录无验证码/失败锁定（只有限流）。
-13. 密码修改不走乐观锁语义——`update_password` 直接 bump version，无 `WHERE version = $x`，
-    并发修改会静默覆盖（其他字段更新是 409）。不一致但影响小。
-14. `PhoneNumber` 语义绑定中国 11 位手机号（`VARCHAR(11)` + 校验），国际化受限；
-    login 仅 phone+password，无 email 渠道。
-15. locale 协商只取 primary subtag——`zh-TW` 落到 `zh-CN` 简体、`pt-BR` 落到英文。
-    可接受，值得注释说明。
-16. l10n 状态码映射是 if/else 字符串匹配（`l10n_status_code`），新 key 漏映射静默落 400。
-    locale 存在性有测试，但"状态码映射完整性"没有对应守护测试。
-17. 无 CORS 层——模板若面向浏览器前端需自行加 `tower-http` cors；若刻意留白应在
-    AGENTS.md 注明。
-
-## 三、缺失点清单
-
-| 缺失 | 影响 |
-|---|---|
-| CI/CD 工作流 | 质量门禁全靠本地 |
-| 应用 Dockerfile / 部署清单 | 无法直接交付 |
-| 业务 metrics（HTTP/job/限流仪表） | 只有链路观测，无数字可报警 |
-| 权限模型（仅 `privileged` 布尔） | 第二个 feature 就要面对 RBAC 问题 |
-| 审计日志（账号 CRUD/改密/删除无留痕） | 合规场景缺基础 |
-| CORS / 安全响应头 | 前端接入需补 |
-| refresh token 的 DB 持久层 | cache 清空（redb `Durability::None` 崩溃丢失、redis 驱逐）= 全员下线；属刻意设计但未文档化风险 |
-| API 幂等键（如上传去重） | 客户端重试语义未定义 |
-| `Id` 生成策略文档 | i64 主键 + `Id::default()`，snowflake/时间序语义未说明，跨节点插入无冲突保证文档化 |
-
-## 四、总结与优先级
-
-这是一个**工程质量显著高于平均水平的模板**：架构约束机械化、安全实现有测试自证、
-job queue 是生产级、错误/i18n/可观测性体系完整一致。短板几乎全部集中在"仓库外围"
-——CI、容器化、metrics、权限/审计这些横切面；代码本身的问题（auth 错误映射的字符串
-耦合、token 写入非原子、巨型文件）都属于可定位、可低成本修复的范畴。
-
-建议演进优先级：
-
-1. CI
-2. Dockerfile
-3. metrics 仪表
-4. seed 密码生产防护
-5. `AuthnError` 正式接入 `L10nKeyedError`
+* 「无 CI / 无 Dockerfile / 无业务 metrics」——CI 与 `Dockerfile.ci` 已存在，metrics 已接。
+* 「全局静态 `DOMAIN_REPORT_MAPPERS` 绕过 DI」——**仍存在**且是有意为之：
+  `From<Report> for WebError` 是 `?` 的落点，那里没有 `State`。风险已从「类型不安全」
+  收敛为「必须注册，否则 500」（fail-closed）。
+* 「`WebState` 未按 kit 泛型口子窄化」——能力 trait 与 feature 门控字段已落地。
+* 各版重复的「分层表」「状态码约定」——以 `AGENTS.md` 为唯一真相源，本文不再复述。

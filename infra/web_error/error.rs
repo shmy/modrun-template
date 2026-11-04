@@ -18,7 +18,7 @@ pub enum WebError {
         key: String,
         field: Option<String>,
     },
-    /// 本地化 KEY
+    /// 本地化 KEY（已确认属于「可展示给客户端的业务错误」）。
     L10n(String),
 }
 
@@ -71,6 +71,11 @@ impl fmt::Display for WebError {
 
 impl Error for WebError {}
 
+/// 域错误 → l10n key 的映射器。返回 `None` 表示「不是我的错误」。
+///
+/// 为什么是全局注册表而非 DI：`From<Report> for WebError` 是 `?` 的落点，
+/// 那里没有 `State` 可用（extractor / 中间件 / 域函数都要能 `?`）。因此注册表必须
+/// 进程级可见，只能在「注册时机」上收紧：feature 在 `module()` 里注册，早于首个请求。
 type DomainReportMapper = fn(&Report) -> Option<WebError>;
 
 static DOMAIN_REPORT_MAPPERS: Mutex<Vec<DomainReportMapper>> = Mutex::new(Vec::new());
@@ -81,7 +86,7 @@ fn mappers_lock() -> MutexGuard<'static, Vec<DomainReportMapper>> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// 注册域错误映射（feature 在 `module()` 时调用）；优先于 `is_l10n_key` 启发式。
+/// 注册域错误映射（feature 在 `module()` 时调用）。必须在首个请求前完成。
 pub fn register_domain_mapper(mapper: DomainReportMapper) {
     mappers_lock().push(mapper);
 }
@@ -208,73 +213,76 @@ impl From<Report> for WebError {
     }
 }
 
+/// 只有**显式注册**过的域错误才会变成 4xx l10n key；其余一律 500。
+///
+/// 这里曾用「Display 是否为 snake_case」嗅探，把未注册的小写错误当成业务 key：
+/// 任何第三方错误的 Display 恰好形如 `connection_refused` 就会被静默降级成 400，
+/// 既掩盖故障又不计入 5xx 指标。现在改为 fail-closed：
+/// 想让某个错误对客户端可见，就在 feature 的 `module()` 里注册 mapper。
 fn report_to_web_error(report: Report) -> WebError {
     if let Some(err) = try_domain_mappers(&report) {
         return err;
     }
-    let msg = report.format_current_context().to_string();
-    if is_l10n_key(&msg) {
-        WebError::L10n(msg)
-    } else {
-        WebError::L10n("internal_server_error".to_string())
-    }
-}
-
-/// rootcause `Report` 类型擦除，无法 downcast 到具体域错误；域错误（如
-/// `IdentityError`）约定以 snake_case l10n key 作为 Display（locale 测试的
-/// 正则扫描强制此格式），据此区分「业务 4xx key」与「内部 5xx」。
-/// 约束：非空、长度受限、首字符为小写字母，避免把内部错误误判成 key。
-fn is_l10n_key(msg: &str) -> bool {
-    !msg.is_empty()
-        && msg.len() <= 64
-        && msg
-            .as_bytes()
-            .first()
-            .is_some_and(|b| b.is_ascii_lowercase())
-        && msg
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+    WebError::L10n("internal_server_error".to_string())
 }
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::*;
     use std::error::Error;
+    use std::sync::Once;
 
     #[derive(Debug)]
-    struct FakeL10nError;
+    struct FakeDomainError;
 
-    impl fmt::Display for FakeL10nError {
+    impl fmt::Display for FakeDomainError {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             write!(f, "account_not_found")
         }
     }
 
-    impl Error for FakeL10nError {}
+    impl Error for FakeDomainError {}
 
     #[derive(Debug)]
     struct FakeInternalError;
 
     impl fmt::Display for FakeInternalError {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            write!(f, "connection refused")
+            // 刻意长得像 l10n key：旧实现的启发式会把它误判成 400
+            write!(f, "connection_refused")
         }
     }
 
     impl Error for FakeInternalError {}
 
-    #[test]
-    fn test_report_with_l10n_key() {
-        let report = Report::from(FakeL10nError);
-        let web_err = report_to_web_error(report);
-        assert!(matches!(web_err, WebError::L10n(key) if key == "account_not_found"));
+    fn map_fake_domain(report: &Report) -> Option<WebError> {
+        report
+            .downcast_current_context::<FakeDomainError>()
+            .map(|_| WebError::L10n("account_not_found".to_string()))
+    }
+
+    fn register_once() {
+        static ONCE: Once = Once::new();
+        ONCE.call_once(|| register_domain_mapper(map_fake_domain));
     }
 
     #[test]
-    fn test_report_without_l10n_prefix() {
-        let report = Report::from(FakeInternalError);
-        let web_err = report_to_web_error(report);
-        assert!(matches!(web_err, WebError::L10n(key) if key == "internal_server_error"));
+    fn unregistered_lowercase_error_is_500_not_400() {
+        // 回归保护：未注册的域错误即便 Display 是 snake_case 也必须是 500，
+        // 不能被「像 l10n key」的启发式降级成 400 并掩盖故障。
+        let web_err = report_to_web_error(Report::from(FakeInternalError));
+        assert!(matches!(web_err, WebError::L10n(ref key) if key == "internal_server_error"));
+        assert_eq!(web_err.status_code(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[test]
+    fn registered_domain_error_maps_to_its_key() {
+        register_once();
+        let web_err = report_to_web_error(Report::from(FakeDomainError));
+        assert!(matches!(web_err, WebError::L10n(ref key) if key == "account_not_found"));
+        assert_eq!(web_err.status_code(), StatusCode::NOT_FOUND);
     }
 
     #[test]
@@ -286,14 +294,6 @@ mod tests {
             "urn:modrun:problem:internal-server-error"
         );
         assert_eq!(err.problem_title(), "Internal server error");
-    }
-
-    #[test]
-    fn test_is_l10n_key_rejects_empty_and_non_snake() {
-        assert!(!is_l10n_key(""));
-        assert!(!is_l10n_key("Internal Server Error"));
-        assert!(!is_l10n_key("no-dash"));
-        assert!(is_l10n_key("account_not_found"));
     }
 
     #[test]

@@ -11,10 +11,10 @@ path = "lib.rs"
 workspace = true
 
 [features]
-# 无 default；单独 check 由 just 显式传 blob-fs；server 以 default-features = false 引入
+# 无 default；server 以 default-features = false 引入。
+# 本 crate 只读 pool（路由聚合 / CORS / 超时），不需要 blob 或队列后端；
+# 曾透传 blob-fs/blob-cos 到 web_state/http_routing/http_auth，现已无消费者。
 default = []
-blob-fs = ["web_state/blob-fs", "http_routing/blob-fs", "http_auth/blob-fs"]
-blob-cos = ["web_state/blob-cos", "http_routing/blob-cos", "http_auth/blob-cos"]
 # 由 server feature `otlp` 开启；限流 metrics 经 http_routing/otel → trace_kit
 otel = [
     "dep:axum-tracing-opentelemetry",

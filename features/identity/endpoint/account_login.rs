@@ -1,7 +1,6 @@
 use axum::{Json, extract::State};
 use http_extractors::ValidJson;
-use identity_contract::IdentityError;
-use rootcause::Report;
+use identity_contract::{IdentityError, L10nKeyedError};
 use web_error::{JsonResponseType, ProblemDetails, WebError};
 use web_state::{AppState, HasSession};
 
@@ -38,9 +37,13 @@ async fn run(state: &impl HasSession, request: LoginRequest) -> JsonResponseType
             HashedPassword::equalize_timing().await;
             #[cfg(feature = "otel")]
             trace_kit::metrics::record_login(false);
-            return Err(WebError::from(Report::from(
-                IdentityError::AccountInvalidCredentials,
-            )));
+            // 直接构造 401 key，不经 `Report` → mapper：登录是本域已知的拒绝路径，
+            // 不该依赖 `module()` 是否已注册 mapper。
+            return Err(WebError::L10n(
+                IdentityError::AccountInvalidCredentials
+                    .l10n_key()
+                    .to_string(),
+            ));
         }
     };
 
@@ -51,9 +54,11 @@ async fn run(state: &impl HasSession, request: LoginRequest) -> JsonResponseType
         let _ = err;
         #[cfg(feature = "otel")]
         trace_kit::metrics::record_login(false);
-        return Err(WebError::from(Report::from(
-            IdentityError::AccountInvalidCredentials,
-        )));
+        return Err(WebError::L10n(
+            IdentityError::AccountInvalidCredentials
+                .l10n_key()
+                .to_string(),
+        ));
     }
 
     let tokens = token_ops::issue_tokens(state.cache(), state.token_helper(), &row.id).await?;
