@@ -73,6 +73,7 @@ fn map_file_err(err: rootcause::Report) -> rootcause::Report {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tests::insert_test_account;
     use migration::run_migrations;
     use std::io::Cursor;
 
@@ -125,7 +126,7 @@ mod tests {
     #[sqlx::test]
     async fn avatar_paths_in_use_lists_account_refs(pool: sqlx::PgPool) {
         run_migrations(&pool).await.expect("migrate");
-        let id = crate::tests::insert_test_account(&pool, "13900001999").await;
+        let id = insert_test_account(&pool, "13900001999").await;
         repository::set_avatar(&pool, id, Some("2026/01/inuse.webp".into()))
             .await
             .expect("set");

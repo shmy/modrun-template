@@ -208,7 +208,7 @@ Workspace clippy（**禁止**，`just pre_commit` 含 `--all-targets`）：`unwr
 
 启动时 `persistence` 自动执行业务迁移；`job_queue` 初始化时也会跑 apalis setup（幂等）。**生产/CI 推荐先 `just sqlx_up`（业务 + apalis）再滚动发布 server**，避免多实例并发迁移，并保证编译期 sqlx 宏能看见 `apalis.jobs`。`accounts` 表另有 `remark` / `created_at` / `updated_at` 预留列，当前领域与 API 未暴露。
 
-**Migration squash 警告**：历史 `0002`/`0003`/`0004` 已并入 `0001_baseline`；模板/新库按 baseline 冷启即可。**已按旧 migration versions 跑过的库，不能无脑当兼容升级继续 `sqlx migrate`**（checksum / 版本号会对不上）。
+**Migration squash 警告**：历史 `0002`/`0003`/`0004` 已并入 `0001_baseline`；其后 `0001_baseline` 又改过（如 avatar），另有 `0002_blob_objects`。模板/新库按当前 `infra/migration/versions/` 冷启即可。**已按更早 baseline checksum（或旧 versions）跑过的库，不能无脑当兼容升级继续 `sqlx migrate`**（checksum / 版本号会对不上）。
 
 **SQL 查询**：优先 `sqlx::query!` / `query_as!` / `query_scalar!`；编译时需 `DATABASE_URL` 指向已迁移的库（本仓库不提交 `.sqlx`）。编 `apalis-postgres` 时库内还须已有 `apalis.jobs`：用 `just sqlx_up`（内部 `SQLX_OFFLINE=true`，借包内自带 `.sqlx` 冷启 migrator 并 setup）。勿在空库上直接 `cargo clippy --workspace --all-features`（会把 pg/sqlite 编进同一图，且缺 schema）；用 `just clippy_workspace` / `just pre_commit`。
 
