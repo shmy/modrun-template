@@ -42,7 +42,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.98.1
         with:
           components: clippy, rustfmt
-      - uses: extractions/setup-just@v2
+      - uses: extractions/setup-just@v4
       - uses: Swatinem/rust-cache@v2
       - name: Migrate（业务 + apalis；空库用包内 .sqlx 冷启）
         run: SQLX_OFFLINE=true cargo run -p migrator --locked
