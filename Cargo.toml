@@ -165,7 +165,7 @@ validify = { version = "2.0", default-features = false }
 serde_path_to_error = { version = "0.1", default-features = false }
 serde_urlencoded = { version = "0.7", default-features = false }
 form_urlencoded = { version = "1", default-features = false }
-axum_typed_multipart = { version = "0.16", default-features = false, features = [
+axum_typed_multipart = { version = "0.17", default-features = false, features = [
     "tempfile_3",
     "chrono_0_4",
 ] }
